@@ -212,27 +212,129 @@ def generate_transition(
     )
 
 
+# ── Degree-encoded pitch helpers ──────────────────────────────────────────────
+
+def _decode_note_event(ev: dict, tonic_pc: int, mode: str) -> str:
+    """
+    Convert a degree-encoded NoteEvent dict to a note-name string like "C#4".
+
+    Handles three formats:
+      New  — {"degree": int/str, "alter": int, "octave": int, …}
+      Old  — {"pitch": "C#4", …}          (backward compat)
+      Drum — {"pitch": "kick", …}         (handled by caller)
+
+    The degree encoding is transform-safe:
+    - After transpose(+n): tonic_pc shifts → decoded pitch shifts by n st.
+    - After mode_swap(m):  SCALE_INTERVALS[m] changes → degree 3 becomes the
+      third of the new mode (major third in major, minor third in minor), giving
+      automatic parallel-mode melody substitution.
+    """
+    from music_generator import NOTE_NAMES, SCALE_INTERVALS
+
+    # ── Backward compat: old absolute-pitch format ──
+    if "pitch" in ev and "degree" not in ev:
+        return ev["pitch"]      # note name string or "rest" — pass through
+
+    degree = ev.get("degree", "rest")
+    if degree == "rest":
+        return "rest"
+
+    octave = ev.get("octave", 4)
+    alter  = ev.get("alter",  0)
+
+    if degree == 0:
+        # Chromatic escape: alter is raw semitones above tonic
+        raw_pc = (tonic_pc + alter) % 12
+    else:
+        scale_ivs = SCALE_INTERVALS.get(mode, SCALE_INTERVALS["major"])
+        try:
+            diatonic_iv = scale_ivs[int(degree) - 1]
+        except (IndexError, ValueError):
+            diatonic_iv = 0
+        raw_pc = (tonic_pc + diatonic_iv + alter) % 12
+
+    return f"{NOTE_NAMES[raw_pc]}{octave}"
+
+
+def _phrase_motif_from_sequence(
+    soprano_seq: list[dict],
+    tonic_pc:    int,
+    mode:        str,
+) -> dict | None:
+    """
+    Derive a MotifDef-compatible theme dict from a soprano voice sequence.
+
+    The theme is built from the MIDI pitches decoded from the sequence in
+    the given key/mode, so it always reflects the actual sounding melody
+    (including any mode-swap or transposition that has already been applied
+    to analysis.key / analysis.mode before this call).
+
+    Returns None if fewer than 2 pitched events are present.
+    """
+    from music_generator import SCALE_INTERVALS
+
+    scale_ivs = SCALE_INTERVALS.get(mode, SCALE_INTERVALS["major"])
+    midi_pitches: list[int] = []
+    durations:    list[float] = []
+
+    for ev in soprano_seq:
+        deg = ev.get("degree", "rest")
+        if deg == "rest":
+            continue
+        octave = ev.get("octave", 4)
+        alter  = ev.get("alter",  0)
+        if deg == 0:
+            raw_pc = (tonic_pc + alter) % 12
+        else:
+            try:
+                iv = scale_ivs[int(deg) - 1]
+            except (IndexError, ValueError):
+                iv = 0
+            raw_pc = (tonic_pc + iv + alter) % 12
+        midi_pitches.append((octave + 1) * 12 + raw_pc)
+        durations.append(float(ev.get("duration", 1.0)))
+
+    if len(midi_pitches) < 2:
+        return None
+
+    intervals = [midi_pitches[i + 1] - midi_pitches[i] for i in range(len(midi_pitches) - 1)]
+    return {
+        "type":      "motif",
+        "intervals": intervals,
+        "durations": durations,
+        "inverted":  [-x for x in intervals],
+        "retrograde": list(reversed(intervals)),
+    }
+
+
 # ── Replay mode ───────────────────────────────────────────────────────────────
 
 def replay_section(
-    section: "SectionSpec",
-    analysis: "MusicalAnalysis",
+    section:     "SectionSpec",
+    analysis:    "MusicalAnalysis",
     base_params: dict,
 ):
     """
-    Render captured voice_sequences directly as a MusicScore.
+    Render captured voice_sequences as a MusicScore.
 
-    This produces an exact reproduction of the original MIDI data for the
-    section, bypassing all generative logic.  Returns None if the section
-    has no voice_sequences.
+    Pitches are decoded using analysis.key and analysis.mode, so the output
+    automatically adapts to any prior transpose() or mode_swap() transform —
+    the stored degree-encoded sequences are symbolically correct.
+
+    Returns None if the section has no voice_sequences.
     """
-    from music_generator import MusicScore, Track, Note
+    from music_generator import MusicScore, Track, Note, ROOT_TO_PC
 
     seqs = section.voice_sequences
     if not seqs:
         return None
 
-    instrs = base_params.get("instruments") or ["square"]
+    # Use section-local key/mode when modulate_section() has set them
+    sec_key  = section.extra_params.get("key",  analysis.key)
+    sec_mode = section.extra_params.get("mode", analysis.mode)
+    tonic_pc = ROOT_TO_PC.get(sec_key, ROOT_TO_PC.get(analysis.key, 0))
+
+    instrs        = base_params.get("instruments") or ["square"]
     default_instr = instrs[0] if instrs else "square"
     instr_map = {
         "soprano": default_instr,
@@ -242,12 +344,27 @@ def replay_section(
         "drums":   "drums",
     }
 
-    tracks = []
-    roles  = []
+    tracks: list = []
+    roles:  list = []
+
     for voice in ["soprano", "alto", "bass", "drums"]:
         if voice not in seqs or not seqs[voice]:
             continue
-        notes = [Note(n["pitch"], n["duration"], n["velocity"]) for n in seqs[voice]]
+        notes = []
+        for ev in seqs[voice]:
+            if voice == "drums":
+                # Drums use the {"pitch": name, ...} schema
+                pitch = ev.get("pitch", "rest")
+                if pitch == "rest" or ev.get("degree") == "rest":
+                    notes.append(Note("rest", ev["duration"], 0))
+                else:
+                    notes.append(Note(pitch, ev["duration"], ev.get("velocity", 80)))
+            else:
+                pitch_name = _decode_note_event(ev, tonic_pc, sec_mode)
+                notes.append(Note(pitch_name, ev["duration"], ev.get("velocity", 0)))
+
+        if not notes:
+            continue
         tracks.append(Track(instrument=instr_map[voice], notes=notes))
         roles.append(voice)
 
@@ -323,10 +440,24 @@ def generate_section(
     if section.harmonic_plan:
         d.override("harmonic_plan", _make_plan_injector(section.harmonic_plan))
 
-    # ── 8. Inject motif if referenced ──
+    # ── 8. Inject theme ──
+    # Priority: explicit motif_id > phrase motif derived from voice_sequences > none
     motif_theme = analysis.get_motif_for_section(section)
     if motif_theme:
         d.override("theme", _make_theme_injector(motif_theme))
+    elif section.voice_sequences.get("soprano"):
+        # Derive a phrase-level melodic theme from the captured soprano sequence.
+        # This guides the generator to follow the original melody's contour even
+        # when replay is disabled (e.g. after apply_style_preset or reharmonize).
+        from music_generator import ROOT_TO_PC
+        sec_key  = section.extra_params.get("key",  analysis.key)
+        sec_mode = section.extra_params.get("mode", analysis.mode)
+        tpc      = ROOT_TO_PC.get(sec_key, ROOT_TO_PC.get(analysis.key, 0))
+        phrase_theme = _phrase_motif_from_sequence(
+            section.voice_sequences["soprano"], tpc, sec_mode
+        )
+        if phrase_theme:
+            d.override("theme", _make_theme_injector(phrase_theme))
 
     return d.generate()
 
@@ -439,9 +570,14 @@ def generate_from_analysis(
     scores = []
     for i, section in enumerate(analysis.sections):
         section_seed = seed + i * 1000
-        # Use direct replay if captured voice sequences are available
+        # Replay captured voice sequences unless a generative transform has been applied.
+        # Style/texture/energy transforms set _force_generate=True so the generator
+        # runs (using the voice sequence as a phrase-motif template) and the new style
+        # is actually heard.  Harmonic-only transforms (transpose, mode_swap) do NOT
+        # set this flag: the degree encoding auto-adapts at decode time.
+        force_generate = section.extra_params.get("_force_generate", False)
         score = None
-        if section.voice_sequences:
+        if section.voice_sequences and not force_generate:
             score = replay_section(section, analysis, base_params)
         if score is None:
             score = generate_section(section, analysis, base_params, seed=section_seed)

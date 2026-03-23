@@ -38,6 +38,10 @@ def transpose(analysis: "MusicalAnalysis", semitones: int) -> "MusicalAnalysis":
     Updates:
     - analysis.key (re-spelt using sharps)
     - Every HarmonicEvent.root_pc in every section's harmonic_plan
+
+    voice_sequences do NOT need updating: they are stored as scale degrees
+    relative to the tonic, so changing analysis.key (and thus tonic_pc at
+    decode time) automatically shifts every decoded pitch by the right amount.
     """
     result = deepcopy(analysis)
     old_pc = ROOT_TO_PC[result.key]
@@ -53,13 +57,16 @@ def transpose(analysis: "MusicalAnalysis", semitones: int) -> "MusicalAnalysis":
 
 def mode_swap(analysis: "MusicalAnalysis", new_mode: str) -> "MusicalAnalysis":
     """
-    Reinterpret the harmonic plan in a new mode.
+    Reinterpret the harmonic plan in a new mode (parallel mode substitution).
 
     Keeps each HarmonicEvent's degree and phrase_idx intact; recalculates
     root_pc and chord_type from the scale degree in new_mode.
 
-    This is the canonical "parallel mode" transform: e.g. a ii-V-I in C major
-    becomes a ii°-V-i in C minor when mode_swap(analysis, "minor") is called.
+    voice_sequences do NOT need updating: because pitches are stored as
+    (degree, alter, octave), decode time uses SCALE_INTERVALS[new_mode] to
+    look up diatonic offsets. Degree 3 in major → major third (4 st above
+    tonic); the same degree 3 in minor → minor third (3 st). Parallel-mode
+    melody adaptation is automatic and musically correct.
     """
     result = deepcopy(analysis)
     result.mode = new_mode
@@ -96,6 +103,7 @@ def reharmonize(
         if section.id == section_id:
             section.harmonic_plan = []
             section.extra_params.setdefault("chord_complexity", complexity)
+            section.extra_params["_force_generate"] = True
     return result
 
 
@@ -166,6 +174,10 @@ def change_texture(
 
     Keyword args must be valid TextureHints field names:
         change_texture(analysis, "chorus", bass_type="rock", rhythmic_density=0.8)
+
+    Texture changes switch the section from replay mode to generative mode so the
+    new style is actually heard.  Voice sequences are retained as a melodic template
+    (phrase motif) for the generator.
     """
     result = deepcopy(analysis)
     for section in result.sections:
@@ -173,6 +185,7 @@ def change_texture(
             for k, v in hints.items():
                 if hasattr(section.texture, k):
                     setattr(section.texture, k, v)
+            section.extra_params["_force_generate"] = True
     return result
 
 
@@ -182,7 +195,12 @@ def change_energy(
     level: float | None = None,
     arc: str | None = None,
 ) -> "MusicalAnalysis":
-    """Set energy level and/or arc for a specific section."""
+    """
+    Set energy level and/or arc for a specific section.
+
+    Energy changes switch the section from replay mode to generative mode so
+    the new density / arc is actually applied.
+    """
     result = deepcopy(analysis)
     for section in result.sections:
         if section.id == section_id:
@@ -190,6 +208,7 @@ def change_energy(
                 section.energy.level = max(0.0, min(1.0, level))
             if arc is not None:
                 section.energy.arc = arc
+            section.extra_params["_force_generate"] = True
     return result
 
 
@@ -202,6 +221,10 @@ def apply_style_preset(
     Apply a named style preset to sections' TextureHints.
 
     section_ids : list of section ids to apply to; None = all sections.
+
+    Style presets switch affected sections from replay mode to generative mode
+    so the new texture is heard.  Voice sequences are retained as a melodic
+    template (phrase motif) guiding the generator.
 
     Presets
     -------
@@ -260,6 +283,7 @@ def apply_style_preset(
         for k, v in PRESETS[style].items():
             if hasattr(section.texture, k):
                 setattr(section.texture, k, v)
+        section.extra_params["_force_generate"] = True
 
     return result
 
@@ -387,6 +411,7 @@ def modulate_section(
             if mode is not None:
                 section.extra_params["mode"] = mode
             section.harmonic_plan = []   # regenerate in new key
+            section.voice_sequences = {}  # degree encoding is key-relative; different key → wrong pitches
     return result
 
 

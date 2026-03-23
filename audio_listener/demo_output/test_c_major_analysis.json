@@ -1,0 +1,808 @@
+{
+  "key": "C",
+  "mode": "major",
+  "tempo_bpm": 120,
+  "time_signature": [
+    4,
+    4
+  ],
+  "form_hint": "ternary",
+  "motifs": {
+    "motif_0": {
+      "id": "motif_0",
+      "type": "motif",
+      "intervals": [
+        -2,
+        -2,
+        -1,
+        -2,
+        -2
+      ],
+      "durations": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "inverted": [
+        2,
+        2,
+        1,
+        2,
+        2
+      ],
+      "retrograde": [
+        -2,
+        -2,
+        -1,
+        -2,
+        -2
+      ],
+      "retrograde_inversion": [
+        2,
+        2,
+        1,
+        2,
+        2
+      ]
+    }
+  },
+  "sections": [
+    {
+      "id": "chorus_0",
+      "label": "A",
+      "role": "chorus",
+      "harmonic_plan": [
+        {
+          "root_pc": 0,
+          "chord_type": "maj",
+          "duration_beats": 4.0,
+          "degree": 1,
+          "phrase_idx": 0
+        },
+        {
+          "root_pc": 7,
+          "chord_type": "maj",
+          "duration_beats": 2.0,
+          "degree": 5,
+          "phrase_idx": 0
+        },
+        {
+          "root_pc": 7,
+          "chord_type": "dom7",
+          "duration_beats": 2.0,
+          "degree": 5,
+          "phrase_idx": 0
+        },
+        {
+          "root_pc": 0,
+          "chord_type": "maj",
+          "duration_beats": 4.0,
+          "degree": 1,
+          "phrase_idx": 0
+        },
+        {
+          "root_pc": 5,
+          "chord_type": "maj7",
+          "duration_beats": 2.0,
+          "degree": 4,
+          "phrase_idx": 0
+        },
+        {
+          "root_pc": 5,
+          "chord_type": "maj",
+          "duration_beats": 2.0,
+          "degree": 4,
+          "phrase_idx": 0
+        }
+      ],
+      "motif_id": "motif_0",
+      "texture": {
+        "bass_type": "walking",
+        "rhythmic_density": 0.429,
+        "swing": 0.0,
+        "num_voices": 2,
+        "rhythmic_regularity": 1.0,
+        "melodic_direction": "arch",
+        "use_ornaments": false,
+        "step_leap_ratio": 0.867,
+        "drum_style": "none",
+        "drum_intensity": 0.0
+      },
+      "energy": {
+        "level": 0.806,
+        "arc": "arch"
+      },
+      "repeat_of": null,
+      "extra_params": {
+        "num_phrases": 2,
+        "phrase_length": 4
+      },
+      "transition": {
+        "type": "none",
+        "duration_beats": 0.0
+      },
+      "voice_sequences": {
+        "soprano": [
+          {
+            "degree": 0,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 2,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 3,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 4,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 5,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 6,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 5,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 4,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 3,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 2,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 0,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 0,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 3,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 5,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 6,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 7,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          }
+        ],
+        "bass": [
+          {
+            "degree": 0,
+            "alter": 0,
+            "octave": 3,
+            "duration": 2.0,
+            "velocity": 70
+          },
+          {
+            "degree": 0,
+            "alter": 0,
+            "octave": 3,
+            "duration": 2.0,
+            "velocity": 70
+          },
+          {
+            "degree": 5,
+            "alter": 0,
+            "octave": 2,
+            "duration": 2.0,
+            "velocity": 70
+          },
+          {
+            "degree": 5,
+            "alter": 0,
+            "octave": 2,
+            "duration": 2.0,
+            "velocity": 70
+          },
+          {
+            "degree": 0,
+            "alter": 0,
+            "octave": 3,
+            "duration": 2.0,
+            "velocity": 70
+          },
+          {
+            "degree": 0,
+            "alter": 0,
+            "octave": 3,
+            "duration": 2.0,
+            "velocity": 70
+          },
+          {
+            "degree": 4,
+            "alter": 0,
+            "octave": 3,
+            "duration": 2.0,
+            "velocity": 70
+          },
+          {
+            "degree": 4,
+            "alter": 0,
+            "octave": 3,
+            "duration": 2.0,
+            "velocity": 70
+          }
+        ]
+      }
+    },
+    {
+      "id": "chorus_1",
+      "label": "B",
+      "role": "chorus",
+      "harmonic_plan": [
+        {
+          "root_pc": 0,
+          "chord_type": "maj7",
+          "duration_beats": 2.0,
+          "degree": 1,
+          "phrase_idx": 0
+        },
+        {
+          "root_pc": 0,
+          "chord_type": "maj",
+          "duration_beats": 2.0,
+          "degree": 1,
+          "phrase_idx": 0
+        },
+        {
+          "root_pc": 7,
+          "chord_type": "dom7",
+          "duration_beats": 2.0,
+          "degree": 5,
+          "phrase_idx": 0
+        },
+        {
+          "root_pc": 7,
+          "chord_type": "sus4",
+          "duration_beats": 2.0,
+          "degree": 5,
+          "phrase_idx": 0
+        },
+        {
+          "root_pc": 0,
+          "chord_type": "maj",
+          "duration_beats": 4.0,
+          "degree": 1,
+          "phrase_idx": 0
+        },
+        {
+          "root_pc": 7,
+          "chord_type": "dom7",
+          "duration_beats": 2.0,
+          "degree": 5,
+          "phrase_idx": 0
+        },
+        {
+          "root_pc": 7,
+          "chord_type": "maj",
+          "duration_beats": 2.0,
+          "degree": 5,
+          "phrase_idx": 0
+        }
+      ],
+      "motif_id": "motif_0",
+      "texture": {
+        "bass_type": "pedal",
+        "rhythmic_density": 0.464,
+        "swing": 0.0,
+        "num_voices": 2,
+        "rhythmic_regularity": 1.0,
+        "melodic_direction": "descending",
+        "use_ornaments": false,
+        "step_leap_ratio": 1.0,
+        "drum_style": "none",
+        "drum_intensity": 0.0
+      },
+      "energy": {
+        "level": 0.842,
+        "arc": "descending"
+      },
+      "repeat_of": null,
+      "extra_params": {
+        "num_phrases": 2,
+        "phrase_length": 4
+      },
+      "transition": {
+        "type": "none",
+        "duration_beats": 0.0
+      },
+      "voice_sequences": {
+        "soprano": [
+          {
+            "degree": 0,
+            "alter": 0,
+            "octave": 5,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 7,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 6,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 5,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 4,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 3,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 2,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 0,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 0,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 2,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 3,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 4,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 5,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 4,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 3,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 2,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 0,
+            "alter": 0,
+            "octave": 4,
+            "duration": 0.125,
+            "velocity": 80
+          }
+        ],
+        "bass": [
+          {
+            "degree": 0,
+            "alter": 0,
+            "octave": 3,
+            "duration": 2.0,
+            "velocity": 70
+          },
+          {
+            "degree": 0,
+            "alter": 0,
+            "octave": 3,
+            "duration": 2.0,
+            "velocity": 70
+          },
+          {
+            "degree": 5,
+            "alter": 0,
+            "octave": 2,
+            "duration": 2.0,
+            "velocity": 70
+          },
+          {
+            "degree": 5,
+            "alter": 0,
+            "octave": 2,
+            "duration": 2.0,
+            "velocity": 70
+          },
+          {
+            "degree": 0,
+            "alter": 0,
+            "octave": 3,
+            "duration": 2.0,
+            "velocity": 70
+          },
+          {
+            "degree": 0,
+            "alter": 0,
+            "octave": 3,
+            "duration": 2.0,
+            "velocity": 70
+          },
+          {
+            "degree": 5,
+            "alter": 0,
+            "octave": 3,
+            "duration": 2.0,
+            "velocity": 70
+          },
+          {
+            "degree": 5,
+            "alter": 0,
+            "octave": 3,
+            "duration": 2.0,
+            "velocity": 70
+          }
+        ]
+      }
+    },
+    {
+      "id": "chorus_2",
+      "label": "C",
+      "role": "chorus",
+      "harmonic_plan": [
+        {
+          "root_pc": 0,
+          "chord_type": "maj",
+          "duration_beats": 4.0,
+          "degree": 1,
+          "phrase_idx": 0
+        },
+        {
+          "root_pc": 7,
+          "chord_type": "maj",
+          "duration_beats": 4.0,
+          "degree": 5,
+          "phrase_idx": 0
+        },
+        {
+          "root_pc": 5,
+          "chord_type": "maj",
+          "duration_beats": 4.0,
+          "degree": 4,
+          "phrase_idx": 0
+        },
+        {
+          "root_pc": 7,
+          "chord_type": "maj",
+          "duration_beats": 2.0,
+          "degree": 5,
+          "phrase_idx": 0
+        },
+        {
+          "root_pc": 7,
+          "chord_type": "sus4",
+          "duration_beats": 1.875,
+          "degree": 5,
+          "phrase_idx": 0
+        }
+      ],
+      "motif_id": "motif_0",
+      "texture": {
+        "bass_type": "walking",
+        "rhythmic_density": 0.397,
+        "swing": 0.0,
+        "num_voices": 2,
+        "rhythmic_regularity": 1.0,
+        "melodic_direction": "arch",
+        "use_ornaments": false,
+        "step_leap_ratio": 1.0,
+        "drum_style": "none",
+        "drum_intensity": 0.0
+      },
+      "energy": {
+        "level": 0.775,
+        "arc": "arch"
+      },
+      "repeat_of": null,
+      "extra_params": {
+        "num_phrases": 2,
+        "phrase_length": 4
+      },
+      "transition": {
+        "type": "none",
+        "duration_beats": 0.0
+      },
+      "voice_sequences": {
+        "soprano": [
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 0.875,
+            "velocity": 0
+          },
+          {
+            "degree": 2,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 3,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 4,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 5,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 6,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 7,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 0,
+            "alter": 0,
+            "octave": 5,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 7,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 6,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 5,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 4,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 3,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 2,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 0,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          },
+          {
+            "degree": 0,
+            "alter": 0,
+            "octave": 4,
+            "duration": 1.0,
+            "velocity": 80
+          }
+        ],
+        "bass": [
+          {
+            "degree": 0,
+            "alter": 0,
+            "octave": 3,
+            "duration": 2.0,
+            "velocity": 70
+          },
+          {
+            "degree": 0,
+            "alter": 0,
+            "octave": 3,
+            "duration": 2.0,
+            "velocity": 70
+          },
+          {
+            "degree": 5,
+            "alter": 0,
+            "octave": 2,
+            "duration": 2.0,
+            "velocity": 70
+          },
+          {
+            "degree": 5,
+            "alter": 0,
+            "octave": 2,
+            "duration": 2.0,
+            "velocity": 70
+          },
+          {
+            "degree": 4,
+            "alter": 0,
+            "octave": 2,
+            "duration": 2.0,
+            "velocity": 70
+          },
+          {
+            "degree": 4,
+            "alter": 0,
+            "octave": 2,
+            "duration": 2.0,
+            "velocity": 70
+          },
+          {
+            "degree": 5,
+            "alter": 0,
+            "octave": 2,
+            "duration": 2.0,
+            "velocity": 70
+          },
+          {
+            "degree": 5,
+            "alter": 0,
+            "octave": 2,
+            "duration": 1.875,
+            "velocity": 70
+          }
+        ]
+      }
+    }
+  ]
+}
