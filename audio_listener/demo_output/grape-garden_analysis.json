@@ -133,7 +133,21 @@
       "repeat_of": null,
       "extra_params": {
         "num_phrases": 2,
-        "phrase_length": 8
+        "phrase_length": 8,
+        "source_channels": {
+          "soprano": 4,
+          "alto": 0,
+          "bass": 5,
+          "drums": 9,
+          "inner_1": 2,
+          "inner_2": 12,
+          "inner_3": 10,
+          "inner_4": 3,
+          "inner_5": 7,
+          "inner_6": 8,
+          "inner_7": 1,
+          "inner_8": 11
+        }
       },
       "transition": {
         "type": "none",
@@ -1012,7 +1026,63 @@
             "degree": "rest",
             "alter": 0,
             "octave": 0,
-            "duration": 24.0,
+            "duration": 21.0,
+            "velocity": 0
+          },
+          {
+            "degree": 3,
+            "alter": 0,
+            "octave": 6,
+            "duration": 1.0,
+            "velocity": 100
+          },
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 0.5,
+            "velocity": 0
+          },
+          {
+            "degree": 4,
+            "alter": 0,
+            "octave": 6,
+            "duration": 0.25,
+            "velocity": 100
+          },
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 0.25,
+            "velocity": 0
+          },
+          {
+            "degree": 2,
+            "alter": 0,
+            "octave": 6,
+            "duration": 0.25,
+            "velocity": 100
+          },
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 0.25,
+            "velocity": 0
+          },
+          {
+            "degree": 0,
+            "alter": 0,
+            "octave": 6,
+            "duration": 0.25,
+            "velocity": 100
+          },
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 0.25,
             "velocity": 0
           }
         ],
@@ -1021,7 +1091,301 @@
             "degree": "rest",
             "alter": 0,
             "octave": 0,
-            "duration": 24.0,
+            "duration": 3.0,
+            "velocity": 0
+          },
+          {
+            "degree": 3,
+            "alter": 0,
+            "octave": 6,
+            "duration": 0.125,
+            "velocity": 100
+          },
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 0.875,
+            "velocity": 0
+          },
+          {
+            "degree": 6,
+            "alter": 0,
+            "octave": 5,
+            "duration": 0.125,
+            "velocity": 100
+          },
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 0.875,
+            "velocity": 0
+          },
+          {
+            "degree": 3,
+            "alter": 0,
+            "octave": 6,
+            "duration": 0.125,
+            "velocity": 100
+          },
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 0.875,
+            "velocity": 0
+          },
+          {
+            "degree": 2,
+            "alter": 0,
+            "octave": 6,
+            "duration": 0.125,
+            "velocity": 100
+          },
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 0.875,
+            "velocity": 0
+          },
+          {
+            "degree": 5,
+            "alter": 0,
+            "octave": 5,
+            "duration": 0.125,
+            "velocity": 100
+          },
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 0.875,
+            "velocity": 0
+          },
+          {
+            "degree": 2,
+            "alter": 0,
+            "octave": 6,
+            "duration": 0.125,
+            "velocity": 100
+          },
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 0.875,
+            "velocity": 0
+          },
+          {
+            "degree": 0,
+            "alter": 0,
+            "octave": 6,
+            "duration": 0.125,
+            "velocity": 100
+          },
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 0.875,
+            "velocity": 0
+          },
+          {
+            "degree": 4,
+            "alter": 0,
+            "octave": 5,
+            "duration": 0.125,
+            "velocity": 100
+          },
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 0.875,
+            "velocity": 0
+          },
+          {
+            "degree": 0,
+            "alter": 0,
+            "octave": 6,
+            "duration": 0.125,
+            "velocity": 100
+          },
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 0.875,
+            "velocity": 0
+          },
+          {
+            "degree": 2,
+            "alter": 0,
+            "octave": 6,
+            "duration": 0.125,
+            "velocity": 100
+          },
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 0.875,
+            "velocity": 0
+          },
+          {
+            "degree": 5,
+            "alter": 0,
+            "octave": 5,
+            "duration": 0.125,
+            "velocity": 100
+          },
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 0.875,
+            "velocity": 0
+          },
+          {
+            "degree": 5,
+            "alter": 0,
+            "octave": 6,
+            "duration": 0.125,
+            "velocity": 100
+          },
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 0.875,
+            "velocity": 0
+          },
+          {
+            "degree": 3,
+            "alter": 0,
+            "octave": 6,
+            "duration": 0.125,
+            "velocity": 100
+          },
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 0.875,
+            "velocity": 0
+          },
+          {
+            "degree": 6,
+            "alter": 0,
+            "octave": 5,
+            "duration": 0.125,
+            "velocity": 100
+          },
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 0.875,
+            "velocity": 0
+          },
+          {
+            "degree": 3,
+            "alter": 0,
+            "octave": 6,
+            "duration": 0.125,
+            "velocity": 100
+          },
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 0.875,
+            "velocity": 0
+          },
+          {
+            "degree": 2,
+            "alter": 0,
+            "octave": 6,
+            "duration": 0.125,
+            "velocity": 100
+          },
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 0.875,
+            "velocity": 0
+          },
+          {
+            "degree": 5,
+            "alter": 0,
+            "octave": 5,
+            "duration": 0.125,
+            "velocity": 100
+          },
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 0.875,
+            "velocity": 0
+          },
+          {
+            "degree": 2,
+            "alter": 0,
+            "octave": 6,
+            "duration": 0.125,
+            "velocity": 100
+          },
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 0.875,
+            "velocity": 0
+          },
+          {
+            "degree": 0,
+            "alter": 0,
+            "octave": 6,
+            "duration": 0.125,
+            "velocity": 100
+          },
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 0.875,
+            "velocity": 0
+          },
+          {
+            "degree": 4,
+            "alter": 0,
+            "octave": 5,
+            "duration": 0.125,
+            "velocity": 100
+          },
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 0.875,
+            "velocity": 0
+          },
+          {
+            "degree": 0,
+            "alter": 0,
+            "octave": 6,
+            "duration": 0.125,
+            "velocity": 100
+          },
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 0.875,
             "velocity": 0
           }
         ],
@@ -1044,6 +1408,24 @@
           }
         ],
         "inner_5": [
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 24.0,
+            "velocity": 0
+          }
+        ],
+        "inner_6": [
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 24.0,
+            "velocity": 0
+          }
+        ],
+        "inner_7": [
           {
             "degree": "rest",
             "alter": 0,
@@ -1556,7 +1938,7 @@
             "velocity": 0
           }
         ],
-        "inner_6": [
+        "inner_8": [
           {
             "degree": "rest",
             "alter": 0,
@@ -1565,7 +1947,8 @@
             "velocity": 0
           }
         ]
-      }
+      },
+      "generation_mode": "auto"
     },
     {
       "id": "chorus_1",
@@ -1650,7 +2033,21 @@
       "repeat_of": null,
       "extra_params": {
         "num_phrases": 2,
-        "phrase_length": 8
+        "phrase_length": 8,
+        "source_channels": {
+          "soprano": 4,
+          "alto": 0,
+          "bass": 5,
+          "drums": 9,
+          "inner_1": 2,
+          "inner_2": 12,
+          "inner_3": 10,
+          "inner_4": 3,
+          "inner_5": 7,
+          "inner_6": 8,
+          "inner_7": 1,
+          "inner_8": 11
+        }
       },
       "transition": {
         "type": "none",
@@ -2531,19 +2928,61 @@
         ],
         "inner_1": [
           {
+            "degree": 7,
+            "alter": 0,
+            "octave": 6,
+            "duration": 0.25,
+            "velocity": 100
+          },
+          {
             "degree": "rest",
             "alter": 0,
             "octave": 0,
-            "duration": 24.0,
+            "duration": 0.75,
+            "velocity": 0
+          },
+          {
+            "degree": 6,
+            "alter": 0,
+            "octave": 5,
+            "duration": 0.25,
+            "velocity": 100
+          },
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 0.75,
+            "velocity": 0
+          },
+          {
+            "degree": 5,
+            "alter": 0,
+            "octave": 5,
+            "duration": 0.25,
+            "velocity": 100
+          },
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 21.75,
             "velocity": 0
           }
         ],
         "inner_2": [
           {
+            "degree": 7,
+            "alter": 0,
+            "octave": 6,
+            "duration": 0.125,
+            "velocity": 100
+          },
+          {
             "degree": "rest",
             "alter": 0,
             "octave": 0,
-            "duration": 24.0,
+            "duration": 23.875,
             "velocity": 0
           }
         ],
@@ -2575,6 +3014,24 @@
           }
         ],
         "inner_6": [
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 24.0,
+            "velocity": 0
+          }
+        ],
+        "inner_7": [
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 24.0,
+            "velocity": 0
+          }
+        ],
+        "inner_8": [
           {
             "degree": "rest",
             "alter": 0,
@@ -2877,7 +3334,8 @@
             "velocity": 100
           }
         ]
-      }
+      },
+      "generation_mode": "auto"
     },
     {
       "id": "verse_2",
@@ -2962,7 +3420,21 @@
       "repeat_of": null,
       "extra_params": {
         "num_phrases": 2,
-        "phrase_length": 8
+        "phrase_length": 8,
+        "source_channels": {
+          "soprano": 4,
+          "alto": 0,
+          "bass": 5,
+          "drums": 9,
+          "inner_1": 2,
+          "inner_2": 12,
+          "inner_3": 10,
+          "inner_4": 3,
+          "inner_5": 7,
+          "inner_6": 8,
+          "inner_7": 1,
+          "inner_8": 11
+        }
       },
       "transition": {
         "type": "none",
@@ -3849,6 +4321,24 @@
         ],
         "inner_6": [
           {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 24.0,
+            "velocity": 0
+          }
+        ],
+        "inner_7": [
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 24.0,
+            "velocity": 0
+          }
+        ],
+        "inner_8": [
+          {
             "degree": 4,
             "alter": 0,
             "octave": 3,
@@ -4206,7 +4696,8 @@
             "velocity": 100
           }
         ]
-      }
+      },
+      "generation_mode": "auto"
     },
     {
       "id": "verse_3",
@@ -4270,7 +4761,21 @@
       "repeat_of": null,
       "extra_params": {
         "num_phrases": 2,
-        "phrase_length": 8
+        "phrase_length": 8,
+        "source_channels": {
+          "soprano": 4,
+          "alto": 0,
+          "bass": 5,
+          "drums": 9,
+          "inner_1": 2,
+          "inner_2": 12,
+          "inner_3": 10,
+          "inner_4": 3,
+          "inner_5": 7,
+          "inner_6": 8,
+          "inner_7": 1,
+          "inner_8": 11
+        }
       },
       "transition": {
         "type": "none",
@@ -5177,6 +5682,24 @@
             "degree": "rest",
             "alter": 0,
             "octave": 0,
+            "duration": 24.0,
+            "velocity": 0
+          }
+        ],
+        "inner_4": [
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 24.0,
+            "velocity": 0
+          }
+        ],
+        "inner_5": [
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
             "duration": 3.0,
             "velocity": 0
           },
@@ -5475,7 +5998,7 @@
             "velocity": 0
           }
         ],
-        "inner_4": [
+        "inner_6": [
           {
             "degree": "rest",
             "alter": 0,
@@ -5778,7 +6301,7 @@
             "velocity": 0
           }
         ],
-        "inner_5": [
+        "inner_7": [
           {
             "degree": 7,
             "alter": -1,
@@ -5843,7 +6366,7 @@
             "velocity": 0
           }
         ],
-        "inner_6": [
+        "inner_8": [
           {
             "degree": 3,
             "alter": 0,
@@ -6475,7 +6998,8 @@
             "velocity": 0
           }
         ]
-      }
+      },
+      "generation_mode": "auto"
     },
     {
       "id": "verse_4",
@@ -6539,7 +7063,21 @@
       "repeat_of": null,
       "extra_params": {
         "num_phrases": 2,
-        "phrase_length": 8
+        "phrase_length": 8,
+        "source_channels": {
+          "soprano": 4,
+          "alto": 0,
+          "bass": 5,
+          "drums": 9,
+          "inner_1": 2,
+          "inner_2": 12,
+          "inner_3": 10,
+          "inner_4": 3,
+          "inner_5": 7,
+          "inner_6": 8,
+          "inner_7": 1,
+          "inner_8": 11
+        }
       },
       "transition": {
         "type": "none",
@@ -7456,6 +7994,24 @@
             "degree": "rest",
             "alter": 0,
             "octave": 0,
+            "duration": 24.0,
+            "velocity": 0
+          }
+        ],
+        "inner_2": [
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 24.0,
+            "velocity": 0
+          }
+        ],
+        "inner_3": [
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
             "duration": 3.5,
             "velocity": 0
           },
@@ -7754,7 +8310,7 @@
             "velocity": 0
           }
         ],
-        "inner_2": [
+        "inner_4": [
           {
             "degree": "rest",
             "alter": 0,
@@ -8057,7 +8613,7 @@
             "velocity": 0
           }
         ],
-        "inner_3": [
+        "inner_5": [
           {
             "degree": 5,
             "alter": 0,
@@ -8101,7 +8657,7 @@
             "velocity": 0
           }
         ],
-        "inner_4": [
+        "inner_6": [
           {
             "degree": "rest",
             "alter": 0,
@@ -8152,7 +8708,7 @@
             "velocity": 0
           }
         ],
-        "inner_5": [
+        "inner_7": [
           {
             "degree": "rest",
             "alter": 0,
@@ -8161,7 +8717,7 @@
             "velocity": 0
           }
         ],
-        "inner_6": [
+        "inner_8": [
           {
             "degree": 3,
             "alter": 0,
@@ -8835,7 +9391,8 @@
             "velocity": 0
           }
         ]
-      }
+      },
+      "generation_mode": "auto"
     },
     {
       "id": "chorus_5",
@@ -8920,7 +9477,21 @@
       "repeat_of": "chorus_1",
       "extra_params": {
         "num_phrases": 2,
-        "phrase_length": 8
+        "phrase_length": 8,
+        "source_channels": {
+          "soprano": 4,
+          "alto": 0,
+          "bass": 5,
+          "drums": 9,
+          "inner_1": 2,
+          "inner_2": 12,
+          "inner_3": 10,
+          "inner_4": 3,
+          "inner_5": 7,
+          "inner_6": 8,
+          "inner_7": 1,
+          "inner_8": 11
+        }
       },
       "transition": {
         "type": "none",
@@ -9734,6 +10305,24 @@
             "degree": "rest",
             "alter": 0,
             "octave": 0,
+            "duration": 24.0,
+            "velocity": 0
+          }
+        ],
+        "inner_2": [
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 24.0,
+            "velocity": 0
+          }
+        ],
+        "inner_3": [
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
             "duration": 0.5,
             "velocity": 0
           },
@@ -9787,7 +10376,7 @@
             "velocity": 0
           }
         ],
-        "inner_2": [
+        "inner_4": [
           {
             "degree": 5,
             "alter": 0,
@@ -9852,7 +10441,7 @@
             "velocity": 0
           }
         ],
-        "inner_3": [
+        "inner_5": [
           {
             "degree": "rest",
             "alter": 0,
@@ -9910,25 +10499,25 @@
             "velocity": 0
           }
         ],
-        "inner_4": [
-          {
-            "degree": "rest",
-            "alter": 0,
-            "octave": 0,
-            "duration": 24.0,
-            "velocity": 0
-          }
-        ],
-        "inner_5": [
-          {
-            "degree": "rest",
-            "alter": 0,
-            "octave": 0,
-            "duration": 24.0,
-            "velocity": 0
-          }
-        ],
         "inner_6": [
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 24.0,
+            "velocity": 0
+          }
+        ],
+        "inner_7": [
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 24.0,
+            "velocity": 0
+          }
+        ],
+        "inner_8": [
           {
             "degree": 4,
             "alter": 0,
@@ -10294,7 +10883,8 @@
             "velocity": 100
           }
         ]
-      }
+      },
+      "generation_mode": "auto"
     },
     {
       "id": "outro_6",
@@ -10379,7 +10969,21 @@
       "repeat_of": "verse_2",
       "extra_params": {
         "num_phrases": 2,
-        "phrase_length": 8
+        "phrase_length": 8,
+        "source_channels": {
+          "soprano": 4,
+          "alto": 0,
+          "bass": 5,
+          "drums": 9,
+          "inner_1": 2,
+          "inner_2": 12,
+          "inner_3": 10,
+          "inner_4": 3,
+          "inner_5": 7,
+          "inner_6": 8,
+          "inner_7": 1,
+          "inner_8": 11
+        }
       },
       "transition": {
         "type": "none",
@@ -11266,6 +11870,24 @@
         ],
         "inner_6": [
           {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 24.0,
+            "velocity": 0
+          }
+        ],
+        "inner_7": [
+          {
+            "degree": "rest",
+            "alter": 0,
+            "octave": 0,
+            "duration": 24.0,
+            "velocity": 0
+          }
+        ],
+        "inner_8": [
+          {
             "degree": 4,
             "alter": 0,
             "octave": 3,
@@ -11623,7 +12245,8 @@
             "velocity": 100
           }
         ]
-      }
+      },
+      "generation_mode": "auto"
     }
   ]
 }

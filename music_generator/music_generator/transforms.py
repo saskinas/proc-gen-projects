@@ -103,7 +103,7 @@ def reharmonize(
         if section.id == section_id:
             section.harmonic_plan = []
             section.extra_params.setdefault("chord_complexity", complexity)
-            section.extra_params["_force_generate"] = True
+            section.generation_mode = "generate"
     return result
 
 
@@ -185,7 +185,7 @@ def change_texture(
             for k, v in hints.items():
                 if hasattr(section.texture, k):
                     setattr(section.texture, k, v)
-            section.extra_params["_force_generate"] = True
+            section.generation_mode = "generate"
     return result
 
 
@@ -208,7 +208,7 @@ def change_energy(
                 section.energy.level = max(0.0, min(1.0, level))
             if arc is not None:
                 section.energy.arc = arc
-            section.extra_params["_force_generate"] = True
+            section.generation_mode = "generate"
     return result
 
 
@@ -283,7 +283,7 @@ def apply_style_preset(
         for k, v in PRESETS[style].items():
             if hasattr(section.texture, k):
                 setattr(section.texture, k, v)
-        section.extra_params["_force_generate"] = True
+        section.generation_mode = "generate"
 
     return result
 

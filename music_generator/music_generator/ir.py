@@ -282,6 +282,14 @@ class SectionSpec:
     # running the generative pipeline, yielding a reproduction of the original.
     voice_sequences: dict         = field(default_factory=dict)
 
+    # Controls which path generate_from_analysis() takes for this section.
+    # "auto"     — replay voice_sequences if present, else generate (default)
+    # "replay"   — always replay voice_sequences (adapts to harmonic transforms
+    #              via degree encoding; style/texture changes are NOT applied)
+    # "generate" — always run the generative pipeline (set by style/texture
+    #              transforms so their changes are actually heard)
+    generation_mode: str = "auto"
+
     # ── Serialization ──────────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
@@ -306,6 +314,7 @@ class SectionSpec:
             "extra_params": self.extra_params,
             "transition":  self.transition.to_dict(),
             "voice_sequences": self.voice_sequences,
+            "generation_mode": self.generation_mode,
         }
 
     @classmethod
@@ -334,6 +343,7 @@ class SectionSpec:
             extra_params=d.get("extra_params", {}),
             transition=TransitionSpec.from_dict(d.get("transition", {})),
             voice_sequences=d.get("voice_sequences", {}),
+            generation_mode=d.get("generation_mode", "auto"),
         )
 
 

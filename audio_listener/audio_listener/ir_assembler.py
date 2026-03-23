@@ -337,6 +337,19 @@ def assemble(
             if seq:
                 voice_seqs[f"inner_{inner_idx + 1}"] = seq
 
+        # Build source channel map: voice name → MIDI channel number (for remix reference)
+        source_ch_map: dict[str, int] = {}
+        if assignment.melody is not None:
+            source_ch_map["soprano"] = assignment.melody
+        if assignment.countermelody is not None:
+            source_ch_map["alto"] = assignment.countermelody
+        if assignment.bass is not None:
+            source_ch_map["bass"] = assignment.bass
+        if assignment.drums is not None:
+            source_ch_map["drums"] = assignment.drums
+        for inner_idx, ch in enumerate(inner_channels):
+            source_ch_map[f"inner_{inner_idx + 1}"] = ch
+
         section_specs.append(SectionSpec(
             id=f"{role}_{i}",
             label=label,
@@ -349,6 +362,7 @@ def assemble(
             extra_params={
                 "num_phrases":   max(2, n_phrases),
                 "phrase_length": max(2, phrase_bars),
+                "source_channels": source_ch_map,
             },
             voice_sequences=voice_seqs,
         ))

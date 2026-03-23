@@ -577,14 +577,21 @@ def generate_from_analysis(
     scores = []
     for i, section in enumerate(analysis.sections):
         section_seed = seed + i * 1000
-        # Replay captured voice sequences unless a generative transform has been applied.
-        # Style/texture/energy transforms set _force_generate=True so the generator
-        # runs (using the voice sequence as a phrase-motif template) and the new style
-        # is actually heard.  Harmonic-only transforms (transpose, mode_swap) do NOT
-        # set this flag: the degree encoding auto-adapts at decode time.
-        force_generate = section.extra_params.get("_force_generate", False)
+        # Route each section through replay or the generative pipeline.
+        #
+        # generation_mode == "auto":
+        #   Replay voice_sequences when present (degree encoding auto-adapts to
+        #   transpose/mode_swap). Fall through to generate_section when absent.
+        # generation_mode == "replay":
+        #   Always replay.  Use when you want exact notes with harmonic-only transforms.
+        # generation_mode == "generate":
+        #   Always run the generative pipeline.  Set automatically by style/texture/
+        #   energy transforms (apply_style_preset, change_texture, etc.) so that
+        #   those changes are actually heard rather than overridden by stored notes.
+        #   voice_sequences remain available as a phrase-motif template for the generator.
+        mode  = section.generation_mode
         score = None
-        if section.voice_sequences and not force_generate:
+        if mode != "generate" and section.voice_sequences:
             score = replay_section(section, analysis, base_params)
         if score is None:
             score = generate_section(section, analysis, base_params, seed=section_seed)

@@ -87,15 +87,15 @@ def assign_channels(data: MidiData) -> ChannelAssignment:
     # Filter sparse channels out of the melody/counter pool.
     # Channels with very few notes relative to the busiest channel should not
     # be selected as melody even if they happen to have the highest mean pitch.
+    sparse_inner: list[int] = []
     if sorted_ch:
         max_pool = max(_note_count(ch) for ch in sorted_ch)
         sparse_cutoff = max(8, int(max_pool * 0.08))
         substantial = [ch for ch in sorted_ch if _note_count(ch) >= sparse_cutoff]
         if substantial:
-            # Move sparse channels to ignored
-            for ch in sorted_ch:
-                if ch not in substantial:
-                    ignored.append(ch)
+            # Sparse channels are excluded from melody/counter selection but still
+            # captured as inner voices — they may dominate specific sections.
+            sparse_inner = [ch for ch in sorted_ch if ch not in substantial]
             sorted_ch = substantial
 
     # Score remaining channels: weight note count and pitch, but penalise pure
@@ -145,8 +145,9 @@ def assign_channels(data: MidiData) -> ChannelAssignment:
     if sorted_ch:
         counter_ch = sorted_ch.pop()        # next highest score → countermelody
 
-    # Remaining substantial channels become inner voices (captured in voice_sequences)
-    inner_voices = list(sorted_ch)
+    # All remaining substantial channels plus section-local sparse channels become
+    # inner voices and are captured in voice_sequences.
+    inner_voices = list(sorted_ch) + sparse_inner
 
     # Sanity: if bass has higher mean pitch than melody, swap
     if melody_ch is not None and bass_ch is not None:
