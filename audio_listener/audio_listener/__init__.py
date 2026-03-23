@@ -145,9 +145,10 @@ def listen_midi(
     section_labels = label_sections(sections, phrases, melody, total_beats)
 
     # ── 8. Motifs ────────────────────────────────────────────────────────────
-    # Use the highest-pitched non-drum channel with enough notes as the motif
-    # source — this best captures the melodic theme rather than chord arpeggios.
-    def _upper_melody_for_motifs() -> list:
+    # Run motif detection on the top two highest-pitched channels (≥25 notes).
+    # Combining multiple voices catches motifs that aren't in the soprano alone
+    # (e.g. Kirby inner voices that carry the main theme in some sections).
+    def _melodic_channels_for_motifs(n_top: int = 2) -> list:
         drum_ch = assignment.drums
         candidates = [
             (ch, raw.notes_for_channel(ch))
@@ -155,13 +156,30 @@ def listen_midi(
             if ch != drum_ch and len(raw.notes_for_channel(ch)) >= 25
         ]
         if not candidates:
-            return melody
-        # Sort descending by mean pitch
+            return [melody]
         candidates.sort(key=lambda x: -(sum(n.pitch for n in x[1]) / len(x[1])))
-        return _get_notes(candidates[0][0])
+        return [_get_notes(ch) for ch, _ in candidates[:n_top]]
 
-    motif_melody = _upper_melody_for_motifs()
-    motifs = find_motifs(motif_melody, phrases, min_motif_occurrences)
+    all_motif_voices = _melodic_channels_for_motifs()
+    seen_patterns: set = set()
+    motifs: list = []
+    for voice_notes in all_motif_voices:
+        for m in find_motifs(voice_notes, phrases, min_motif_occurrences):
+            pattern_key = tuple(m.intervals)
+            if pattern_key not in seen_patterns:
+                seen_patterns.add(pattern_key)
+                motifs.append(m)
+    # Renumber ids to avoid collisions between voices
+    _next_motif  = [0]
+    _next_seq    = [0]
+    _next_cad    = [0]
+    for m in motifs:
+        if m.type == "motif":
+            m.id = f"motif_{_next_motif[0]}"; _next_motif[0] += 1
+        elif m.type == "sequence":
+            m.id = f"seq_{_next_seq[0]}";    _next_seq[0]   += 1
+        else:
+            m.id = f"cadence_{_next_cad[0]}"; _next_cad[0]  += 1
 
     # ── 9. Assemble ──────────────────────────────────────────────────────────
     return assemble(

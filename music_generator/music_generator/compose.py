@@ -386,6 +386,85 @@ def replay_section(
     )
 
 
+# ── Arrange mode ─────────────────────────────────────────────────────────────
+
+def arrange_section(
+    section:     "SectionSpec",
+    analysis:    "MusicalAnalysis",
+    base_params: dict,
+    seed:        int = 0,
+):
+    """
+    Arrange mode: replay all melody/inner voice sequences, generate fresh
+    bass + drums using the section's style parameters.
+
+    This preserves the original melodic content (soprano, alto, all inner
+    voices) while regenerating the accompaniment layer (bass, drums) in the
+    target style.  The result sounds like "original melody with new backing".
+
+    Falls back to full replay if no voice_sequences exist.
+    Falls back to full generation if replay returns nothing.
+    """
+    from copy import deepcopy
+    from music_generator import MusicScore
+
+    _ensure_paths()
+
+    # 1. Replay all stored sequences to get the full original arrangement
+    replay = replay_section(section, analysis, base_params)
+    if replay is None:
+        return generate_section(section, analysis, base_params, seed=seed)
+
+    # 2. Generate a fresh accompaniment (bass + drums) in the target style.
+    #    Strip voice_sequences so the generator builds accompaniment from scratch.
+    accomp_sec = deepcopy(section)
+    accomp_sec.voice_sequences = {}
+    accomp_sec.generation_mode = "generate"
+    accomp = generate_section(accomp_sec, analysis, base_params, seed=seed)
+
+    # 3. Merge: melody/inner from replay, bass/drums from generated
+    _ACCOMP_ROLES = {"bass", "drums"}
+
+    replay_voices = replay.metadata.get("voices", [])
+    accomp_voices = accomp.metadata.get("voices", [t.instrument for t in accomp.tracks])
+
+    replay_map = {
+        role: replay.tracks[i]
+        for i, role in enumerate(replay_voices)
+        if i < len(replay.tracks)
+    }
+    accomp_map = {
+        role: accomp.tracks[i]
+        for i, role in enumerate(accomp_voices)
+        if i < len(accomp.tracks)
+    }
+
+    merged_tracks = []
+    merged_roles  = []
+
+    # Melody layer: everything replayed except bass/drums
+    for role in replay_voices:
+        if role not in _ACCOMP_ROLES and role in replay_map:
+            merged_tracks.append(replay_map[role])
+            merged_roles.append(role)
+
+    # Accompaniment layer: bass + drums from generated
+    for role in accomp_voices:
+        if role in _ACCOMP_ROLES and role in accomp_map:
+            merged_tracks.append(accomp_map[role])
+            merged_roles.append(role)
+
+    if not merged_tracks:
+        return replay
+
+    return MusicScore(
+        tempo_bpm      = replay.tempo_bpm,
+        time_signature = replay.time_signature,
+        tracks         = merged_tracks,
+        metadata       = {"voices": merged_roles, "form": "arrange", "intent": {}},
+    )
+
+
 # ── Section generation ────────────────────────────────────────────────────────
 
 def generate_section(
@@ -591,7 +670,9 @@ def generate_from_analysis(
         #   voice_sequences remain available as a phrase-motif template for the generator.
         mode  = section.generation_mode
         score = None
-        if mode != "generate" and section.voice_sequences:
+        if mode == "arrange" and section.voice_sequences:
+            score = arrange_section(section, analysis, base_params, seed=section_seed)
+        elif mode != "generate" and section.voice_sequences:
             score = replay_section(section, analysis, base_params)
         if score is None:
             score = generate_section(section, analysis, base_params, seed=section_seed)

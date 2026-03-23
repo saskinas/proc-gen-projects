@@ -93,6 +93,37 @@ def rock(analysis):
     return a
 
 
+def lofi(analysis):
+    """
+    Lo-fi chill: original melody + lazy swing bass, sparse accompaniment.
+
+    Keeps the Kirby melody intact via arrange mode; replaces accompaniment
+    with a slow-swing feel at 85 % of original tempo.
+    """
+    a = apply_style_preset(analysis, "jazz")   # sets arrange mode + jazz texture
+    # Dial back the jazz energy to a lazy groove
+    for sec in a.sections:
+        sec.texture.swing           = 0.40
+        sec.texture.rhythmic_density = 0.30
+        sec.texture.use_ornaments   = False
+    a = tempo_scale(a, 0.85)
+    return a
+
+
+def minimalist(analysis):
+    """
+    Minimalist: original melody + bare sustained bass pulses, no drums.
+
+    Strips accompaniment to a single sustained bass note per chord change.
+    """
+    a = apply_style_preset(analysis, "ambient")  # sets arrange mode + ambient texture
+    for sec in a.sections:
+        sec.texture.rhythmic_density = 0.08
+        sec.texture.counterpoint     = 0.0
+    a = tempo_scale(a, 0.75)
+    return a
+
+
 # ── Tonal presets ─────────────────────────────────────────────────────────────
 
 def dark_minor(analysis):
@@ -243,6 +274,8 @@ PRESETS: dict[str, callable] = {
     "folk":           folk,
     "ambient":        ambient,
     "rock":           rock,
+    "lofi":           lofi,
+    "minimalist":     minimalist,
     "dark_minor":     dark_minor,
     "relative_minor": relative_minor,
     "epic":           epic,
@@ -260,6 +293,8 @@ CLASSICAL      = classical
 FOLK           = folk
 AMBIENT        = ambient
 ROCK           = rock
+LOFI           = lofi
+MINIMALIST     = minimalist
 DARK_MINOR     = dark_minor
 RELATIVE_MINOR = relative_minor
 EPIC           = epic

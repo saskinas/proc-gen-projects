@@ -229,6 +229,10 @@ def find_motifs(
                     continue
                 pts    = [n.pitch for n in tail]
                 consec = tuple(pts[i + 1] - pts[i] for i in range(len(pts) - 1))
+                # Skip pure register shifts: any interval ≥ one octave in a
+                # 2–3 note figure is not a meaningful closing gesture.
+                if any(abs(i) >= 12 for i in consec):
+                    continue
                 durs   = [n.duration_beats for n in tail]
                 cad_map.setdefault(consec, []).append((ph_idx, tail, durs))
         return [

@@ -314,8 +314,11 @@ class SectionSpec:
     # "auto"     — replay voice_sequences if present, else generate (default)
     # "replay"   — always replay voice_sequences (adapts to harmonic transforms
     #              via degree encoding; style/texture changes are NOT applied)
-    # "generate" — always run the generative pipeline (set by style/texture
-    #              transforms so their changes are actually heard)
+    # "generate" — always run the generative pipeline (set by transforms like
+    #              reharmonize/epic that need to regenerate everything)
+    # "arrange"  — replay soprano/alto/inner voices, regenerate bass+drums in
+    #              the new style (set by apply_style_preset, change_texture,
+    #              change_energy; gives "original melody + new accompaniment")
     generation_mode: str = "auto"
 
     # ── Serialization ──────────────────────────────────────────────────────

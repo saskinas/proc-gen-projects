@@ -229,7 +229,7 @@ def change_texture(
             for k, v in hints.items():
                 if hasattr(section.texture, k):
                     setattr(section.texture, k, v)
-            section.generation_mode = "generate"
+            section.generation_mode = "arrange"
     return result
 
 
@@ -252,7 +252,7 @@ def change_energy(
                 section.energy.level = max(0.0, min(1.0, level))
             if arc is not None:
                 section.energy.arc = arc
-            section.generation_mode = "generate"
+            section.generation_mode = "arrange"
     return result
 
 
@@ -327,7 +327,7 @@ def apply_style_preset(
         for k, v in PRESETS[style].items():
             if hasattr(section.texture, k):
                 setattr(section.texture, k, v)
-        section.generation_mode = "generate"
+        section.generation_mode = "arrange"
 
     return result
 

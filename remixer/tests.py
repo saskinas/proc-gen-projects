@@ -162,6 +162,7 @@ class TestPresetsImport(unittest.TestCase):
         from remixer.presets import PRESETS
         expected = {
             "jazz", "baroque", "classical", "folk", "ambient", "rock",
+            "lofi", "minimalist",
             "dark_minor", "relative_minor", "epic",
             "mirror_world", "retrograde", "kaleidoscope",
             "fragmented", "reharmonized",
@@ -193,6 +194,8 @@ class TestPresetPipeline(unittest.TestCase):
     def test_folk(self):             self._run("folk")
     def test_ambient(self):          self._run("ambient")
     def test_rock(self):             self._run("rock")
+    def test_lofi(self):             self._run("lofi")
+    def test_minimalist(self):       self._run("minimalist")
     def test_dark_minor(self):       self._run("dark_minor")
     def test_relative_minor(self):   self._run("relative_minor")
     def test_epic(self):             self._run("epic")
@@ -259,6 +262,23 @@ class TestPresetTransforms(unittest.TestCase):
         for sec in remixed.sections:
             if "soprano" in sec.voice_sequences:
                 self.assertEqual(sec.generation_mode, "replay")
+
+    def test_jazz_uses_arrange_mode(self):
+        """Style presets must use arrange mode (keep melody, regenerate bass/drums)."""
+        from remixer.presets import JAZZ
+        remixed = JAZZ(self.analysis)
+        for sec in remixed.sections:
+            self.assertEqual(sec.generation_mode, "arrange")
+
+    def test_lofi_slows_tempo(self):
+        from remixer.presets import LOFI
+        remixed = LOFI(self.analysis)
+        self.assertLess(remixed.tempo_bpm, self.analysis.tempo_bpm)
+
+    def test_minimalist_slows_tempo(self):
+        from remixer.presets import MINIMALIST
+        remixed = MINIMALIST(self.analysis)
+        self.assertLess(remixed.tempo_bpm, self.analysis.tempo_bpm)
 
     def test_preset_does_not_mutate_input(self):
         """All presets must be pure functions — input is unchanged."""

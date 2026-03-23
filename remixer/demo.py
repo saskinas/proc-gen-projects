@@ -29,6 +29,7 @@ for pkg in ("remixer", "audio_listener", "music_generator", "procgen"):
 from remixer import analyze, describe, remix_to_file
 from remixer.presets import (
     JAZZ, BAROQUE, CLASSICAL, FOLK, AMBIENT, ROCK,
+    LOFI, MINIMALIST,
     DARK_MINOR, RELATIVE_MINOR,
     EPIC, MIRROR_WORLD, RETROGRADE, KALEIDOSCOPE,
     FRAGMENTED, REHARMONIZED,
@@ -75,32 +76,34 @@ def demo_grape_garden(analysis):
     remix_to_file(src, _out(song, "01_dark_minor"),      DARK_MINOR,     seed=42)
     remix_to_file(src, _out(song, "02_relative_minor"),  RELATIVE_MINOR, seed=42)
 
-    # Style transplants — what if this were a different genre?
+    # Arrange-mode style transplants: Kirby melody + new accompaniment
     remix_to_file(src, _out(song, "03_jazz"),            JAZZ,           seed=42)
     remix_to_file(src, _out(song, "04_baroque"),         BAROQUE,        seed=42)
     remix_to_file(src, _out(song, "05_folk"),            FOLK,           seed=42)
+    remix_to_file(src, _out(song, "06_lofi"),            LOFI,           seed=42)
+    remix_to_file(src, _out(song, "07_minimalist"),      MINIMALIST,     seed=42)
 
     # Energy extremes
-    remix_to_file(src, _out(song, "06_epic"),            EPIC,           seed=42)
-    remix_to_file(src, _out(song, "07_ambient"),         AMBIENT,        seed=42)
+    remix_to_file(src, _out(song, "08_epic"),            EPIC,           seed=42)
+    remix_to_file(src, _out(song, "09_ambient"),         AMBIENT,        seed=42)
 
     # Voice-level transforms — melodic manipulation
-    remix_to_file(src, _out(song, "08_mirror_world"),    MIRROR_WORLD,   seed=42)
-    remix_to_file(src, _out(song, "09_kaleidoscope"),    KALEIDOSCOPE,   seed=42)
+    remix_to_file(src, _out(song, "10_mirror_world"),    MIRROR_WORLD,   seed=42)
+    remix_to_file(src, _out(song, "11_kaleidoscope"),    KALEIDOSCOPE,   seed=42)
 
     # Motivic development — work with the detected patterns
-    remix_to_file(src, _out(song, "10_fragmented"),      FRAGMENTED,     seed=42)
+    remix_to_file(src, _out(song, "12_fragmented"),      FRAGMENTED,     seed=42)
 
-    # Compound remix: jazz + dark minor
-    remix_to_file(src, _out(song, "11_dark_jazz"),
-        DARK_MINOR, JAZZ, seed=42)
+    # Compound: dark minor + lofi (moody late-night chill)
+    remix_to_file(src, _out(song, "13_dark_lofi"),
+        DARK_MINOR, LOFI, seed=42)
 
-    # Compound remix: baroque + invert + high harmonic complexity
-    remix_to_file(src, _out(song, "12_baroque_mirror"),
+    # Compound: baroque + invert
+    remix_to_file(src, _out(song, "14_baroque_mirror"),
         MIRROR_WORLD, BAROQUE, seed=42)
 
     # Compound: epic rock
-    remix_to_file(src, _out(song, "13_epic_rock"),
+    remix_to_file(src, _out(song, "15_epic_rock"),
         EPIC, ROCK, seed=42)
 
 
@@ -114,14 +117,18 @@ def demo_vegetable_valley(analysis):
 
     remix_to_file(src, _out(song, "00_original"),       seed=42)
     remix_to_file(src, _out(song, "01_jazz"),           JAZZ,           seed=42)
-    remix_to_file(src, _out(song, "02_dark_minor"),     DARK_MINOR,     seed=42)
-    remix_to_file(src, _out(song, "03_baroque"),        BAROQUE,        seed=42)
-    remix_to_file(src, _out(song, "04_retrograde"),     RETROGRADE,     seed=42)
-    remix_to_file(src, _out(song, "05_epic"),           EPIC,           seed=42)
-    remix_to_file(src, _out(song, "06_folk"),           FOLK,           seed=42)
+    remix_to_file(src, _out(song, "02_lofi"),           LOFI,           seed=42)
+    remix_to_file(src, _out(song, "03_dark_minor"),     DARK_MINOR,     seed=42)
+    remix_to_file(src, _out(song, "04_baroque"),        BAROQUE,        seed=42)
+    remix_to_file(src, _out(song, "05_retrograde"),     RETROGRADE,     seed=42)
+    remix_to_file(src, _out(song, "06_epic"),           EPIC,           seed=42)
+    remix_to_file(src, _out(song, "07_folk"),           FOLK,           seed=42)
     # Compound: minor + retrograde (haunted garden)
-    remix_to_file(src, _out(song, "07_haunted"),
+    remix_to_file(src, _out(song, "08_haunted"),
         RELATIVE_MINOR, RETROGRADE, seed=42)
+    # Compound: dark minor + lofi (late night groove)
+    remix_to_file(src, _out(song, "09_dark_lofi"),
+        DARK_MINOR, LOFI, seed=42)
 
 
 def demo_rainbow_resort(analysis):
@@ -134,15 +141,20 @@ def demo_rainbow_resort(analysis):
 
     remix_to_file(src, _out(song, "00_original"),       seed=42)
     remix_to_file(src, _out(song, "01_ambient"),        AMBIENT,        seed=42)
-    remix_to_file(src, _out(song, "02_jazz"),           JAZZ,           seed=42)
-    remix_to_file(src, _out(song, "03_dark_minor"),     DARK_MINOR,     seed=42)
-    remix_to_file(src, _out(song, "04_baroque"),        BAROQUE,        seed=42)
-    remix_to_file(src, _out(song, "05_mirror_world"),   MIRROR_WORLD,   seed=42)
+    remix_to_file(src, _out(song, "02_lofi"),           LOFI,           seed=42)
+    remix_to_file(src, _out(song, "03_minimalist"),     MINIMALIST,     seed=42)
+    remix_to_file(src, _out(song, "04_jazz"),           JAZZ,           seed=42)
+    remix_to_file(src, _out(song, "05_dark_minor"),     DARK_MINOR,     seed=42)
+    remix_to_file(src, _out(song, "06_baroque"),        BAROQUE,        seed=42)
+    remix_to_file(src, _out(song, "07_mirror_world"),   MIRROR_WORLD,   seed=42)
     # Compound: dreamy ambient minor
-    remix_to_file(src, _out(song, "06_dream_minor"),
+    remix_to_file(src, _out(song, "08_dream_minor"),
         RELATIVE_MINOR, AMBIENT, seed=42)
+    # Lofi with dark minor (late night resort vibes)
+    remix_to_file(src, _out(song, "09_dark_lofi"),
+        DARK_MINOR, LOFI, seed=42)
     # Classical with reharmonization
-    remix_to_file(src, _out(song, "07_classical_reharmonized"),
+    remix_to_file(src, _out(song, "10_classical_reharmonized"),
         CLASSICAL, REHARMONIZED, seed=42)
 
 
@@ -158,16 +170,20 @@ def demo_final_boss(analysis):
     remix_to_file(src, _out(song, "01_epic"),           EPIC,           seed=42)
     remix_to_file(src, _out(song, "02_dark_minor"),     DARK_MINOR,     seed=42)
     remix_to_file(src, _out(song, "03_jazz"),           JAZZ,           seed=42)
+    remix_to_file(src, _out(song, "04_rock"),           ROCK,           seed=42)
     # Motivic development — final boss themes are usually motif-dense
-    remix_to_file(src, _out(song, "04_fragmented"),     FRAGMENTED,     seed=42)
-    remix_to_file(src, _out(song, "05_kaleidoscope"),   KALEIDOSCOPE,   seed=42)
-    remix_to_file(src, _out(song, "06_reharmonized"),   REHARMONIZED,   seed=42)
+    remix_to_file(src, _out(song, "05_fragmented"),     FRAGMENTED,     seed=42)
+    remix_to_file(src, _out(song, "06_kaleidoscope"),   KALEIDOSCOPE,   seed=42)
+    remix_to_file(src, _out(song, "07_reharmonized"),   REHARMONIZED,   seed=42)
     # Compound: epic + reharmonized (maximum tension)
-    remix_to_file(src, _out(song, "07_epic_reharmonized"),
+    remix_to_file(src, _out(song, "08_epic_reharmonized"),
         EPIC, REHARMONIZED, seed=42)
-    # Compound: ambient minor (a quiet, melancholic version of the boss theme)
-    remix_to_file(src, _out(song, "08_lullaby"),
-        RELATIVE_MINOR, AMBIENT, seed=7)
+    # Compound: lofi minor (surprising chill take on the boss)
+    remix_to_file(src, _out(song, "09_chill_boss"),
+        DARK_MINOR, LOFI, seed=42)
+    # Compound: ambient minor (a quiet, melancholic lullaby version)
+    remix_to_file(src, _out(song, "10_lullaby"),
+        RELATIVE_MINOR, MINIMALIST, seed=7)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
