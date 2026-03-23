@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "remixer"
+version = "0.1.0"
+description = "MIDI remix pipeline — analyze, transform, and regenerate music from the symbolic IR"
+requires-python = ">=3.8"
+dependencies = ["audio-listener", "music-generator", "procgen"]
+
+# Install (editable):
+#   pip install -e ../procgen
+#   pip install -e ../music_generator
+#   pip install -e ../audio_listener
+#   pip install -e .
