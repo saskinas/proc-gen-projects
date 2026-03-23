@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "procgen"
+version = "0.1.0"
+description = "Domain-agnostic procedural generation framework"
+requires-python = ">=3.8"
+
+# Install (editable):
+#   pip install -e .

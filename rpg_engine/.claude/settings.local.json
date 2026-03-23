@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(PYTHONIOENCODING=utf-8 python tests.py)",
+      "Read(//c/Users/saski/Documents/programs/python/**)",
+      "Bash(mkdir -p procgen/procgen/domains music_generator/music_generator story_generator/story_generator)",
+      "Bash(printf 'from .base import DomainBase\\\\nfrom .dungeon import DungeonDomain, DungeonMap, Room\\\\nfrom .terrain import TerrainDomain, TerrainMap\\\\n\\\\n__all__ = [\\\\n    \"\"DomainBase\"\",\\\\n    \"\"DungeonDomain\"\", \"\"DungeonMap\"\", \"\"Room\"\",\\\\n    \"\"TerrainDomain\"\", \"\"TerrainMap\"\",\\\\n]\\\\n')",
+      "Bash(\"C:/Users/saski/Documents/programs/python/procgen/procgen/domains/__init__.py\")",
+      "Bash(pip install:*)",
+      "Bash(for f:*)",
+      "Bash(do)",
+      "Bash(sed -i 's/setuptools.backends.legacy:build/setuptools.build_meta/' \"$f\")",
+      "Bash(done)",
+      "Bash(PYTHONIOENCODING=utf-8 python demo.py bright 0.8 complex seed=1)",
+      "Bash(PYTHONIOENCODING=utf-8 python demo.py fantasy dark long seed=42)"
+    ]
+  }
+}

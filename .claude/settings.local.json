@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs grep:*)",
+      "Bash(python -c \":*)",
+      "Bash(python test_music.py)",
+      "Bash(python demo_music.py)",
+      "Bash(python tests.py)",
+      "Bash(python -c \"import procgen; print\\(procgen.__file__\\)\")",
+      "Bash(python demo.py)"
+    ]
+  }
+}
