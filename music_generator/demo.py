@@ -25,6 +25,13 @@ sys.path.insert(0, str(PROJECTS / "procgen"))  # procgen package
 from procgen import Designer, export
 from music_generator import MusicDomain
 from music_generator import NOTE_NAMES, ROOT_TO_PC, SCALE_INTERVALS, note_str_to_midi
+from music_generator.ir import (
+    MusicalAnalysis, SectionSpec, MotifDef, TextureHints, EnergyProfile,
+)
+from music_generator.compose import generate_from_analysis
+from music_generator.transforms import (
+    mode_swap, transpose, apply_style_preset, assign_motif, compose as ir_compose,
+)
 
 OUT_DIR = HERE / "demo_output" / "midi"
 
@@ -905,6 +912,414 @@ def run_rock_demo(out_dir: pathlib.Path):
                   f"density {stats['note_density']:.2f}  -> {fname}")
 
 
+# -- Shared base params for symbolic demos ------------------------------------
+
+_SYMBOLIC_BASE = dict(
+    form="binary",
+    num_phrases=2,
+    phrase_length=4,
+    num_voices=3,
+    texture="polyphonic",
+    counterpoint=0.55,
+    imitation=0.0,
+    voice_independence=0.5,
+    inner_voice_style="countermelody",
+    bass_type="walking",
+    circle_of_fifths=0.65,
+    chord_complexity=0.40,
+    modal_mixture=0.10,
+    pedal_point=0.0,
+    melodic_range=2,
+    step_leap_ratio=0.70,
+    sequence_probability=0.30,
+    use_ornaments=False,
+    melodic_direction="arch",
+    rhythmic_density=0.55,
+    rhythmic_regularity=0.60,
+    swing=0.0,
+    instruments=["piano"],
+    melodic_theme="none",
+    power_chords=False,
+    ending="held",
+    intro="none",
+)
+
+
+# -- Demo 1: Multi-section composition ----------------------------------------
+
+def run_multisection_demo(out_dir: pathlib.Path):
+    """
+    Compose a four-section piece (Intro -> Verse -> Chorus -> Outro) using the
+    MusicalAnalysis IR.  Each section has independent TextureHints and an
+    EnergyProfile; the generator is called once per section and the results
+    are concatenated into a single MIDI file.
+
+    This demonstrates the symbolic pipeline's section-level controls without
+    any pre-built harmonic plans — HarmonicPlanGenerator runs normally for each
+    section but receives section-specific texture and energy overrides.
+    """
+    print()
+    print("=" * 66)
+    print("  MULTI-SECTION DEMO -- Intro -> Verse -> Chorus -> Outro")
+    print("  (A minor, piano, 4 distinct sections)")
+    print("=" * 66)
+
+    analysis = MusicalAnalysis(
+        key="A", mode="minor", tempo_bpm=96, time_signature=[4, 4],
+        form_hint="through_composed",
+        sections=[
+            SectionSpec(
+                id="intro", label="Intro", role="intro",
+                harmonic_plan=[],
+                texture=TextureHints(
+                    bass_type="sustained", inner_voice_style="block_chords",
+                    rhythmic_density=0.25, use_ornaments=False,
+                    melodic_direction="ascending", counterpoint=0.2,
+                ),
+                energy=EnergyProfile(level=0.25, arc="ascending"),
+                extra_params={"num_phrases": 2, "phrase_length": 2,
+                              "circle_of_fifths": 0.4, "intro": "upbeat"},
+            ),
+            SectionSpec(
+                id="verse", label="Verse", role="verse",
+                harmonic_plan=[],
+                texture=TextureHints(
+                    bass_type="walking", inner_voice_style="countermelody",
+                    rhythmic_density=0.55, use_ornaments=False,
+                    melodic_direction="arch", counterpoint=0.55,
+                ),
+                energy=EnergyProfile(level=0.55, arc="arch"),
+                extra_params={"num_phrases": 2, "phrase_length": 4,
+                              "circle_of_fifths": 0.65},
+            ),
+            SectionSpec(
+                id="chorus", label="Chorus", role="chorus",
+                harmonic_plan=[],
+                texture=TextureHints(
+                    bass_type="arpeggiated", inner_voice_style="arpeggiated",
+                    rhythmic_density=0.70, use_ornaments=True,
+                    melodic_direction="arch", counterpoint=0.70,
+                ),
+                energy=EnergyProfile(level=0.85, arc="arch"),
+                extra_params={"num_phrases": 2, "phrase_length": 4,
+                              "circle_of_fifths": 0.75, "chord_complexity": 0.55},
+            ),
+            SectionSpec(
+                id="outro", label="Outro", role="outro",
+                harmonic_plan=[],
+                texture=TextureHints(
+                    bass_type="sustained", inner_voice_style="block_chords",
+                    rhythmic_density=0.20, use_ornaments=False,
+                    melodic_direction="descending", counterpoint=0.15,
+                ),
+                energy=EnergyProfile(level=0.20, arc="descending"),
+                extra_params={"num_phrases": 2, "phrase_length": 2,
+                              "ending": "ritardando"},
+            ),
+        ],
+    )
+
+    score = generate_from_analysis(analysis, base_params=_SYMBOLIC_BASE, seed=900)
+
+    total_notes = sum(len(t.notes) for t in score.tracks)
+    total_beats = sum(n.duration for n in score.tracks[0].notes) if score.tracks else 0
+
+    print(f"\n  Structure : {' -> '.join(s.label for s in analysis.sections)}")
+    print(f"  Key/Mode  : {analysis.key} {analysis.mode}  .  {analysis.tempo_bpm} BPM")
+    print(f"  Voices    : {len(score.tracks)}  ({', '.join(t.instrument for t in score.tracks)})")
+    print(f"  Total     : {total_notes} notes  .  ~{total_beats:.0f} beats")
+
+    roles = score.metadata.get("voices", [])
+    for i, track in enumerate(score.tracks):
+        role   = roles[i] if i < len(roles) else f"v{i}"
+        stats  = analyze_track(track.notes)
+        if stats:
+            print(f"\n  [{role.upper()}]  {stats['note_count']} notes  "
+                  f"density {stats['note_density']:.2f}/beat  "
+                  f"step {stats['step_pct']:.0f}%")
+            print(f"    {note_line(track.notes, 14)}")
+
+    fname = "multisection_intro_verse_chorus_outro.mid"
+    with open(out_dir / fname, "wb") as f:
+        f.write(export.to_midi(score))
+    print(f"\n  -> {fname}  ({sum(len(t.notes) for t in score.tracks)} notes total)")
+
+
+# -- Demo 2: Mode-swap remix ---------------------------------------------------
+
+def run_mode_swap_demo(out_dir: pathlib.Path):
+    """
+    Generate a harmonic plan in G major, package it as a MusicalAnalysis,
+    then use mode_swap() to derive a parallel G minor version.  Both pieces
+    share the exact same scale-degree skeleton and texture; only the chord
+    quality and root pitches change.
+
+    Shows how a single procedurally-generated harmonic structure can be
+    recoloured across modes as a remix operation.
+    """
+    print()
+    print("=" * 66)
+    print("  MODE-SWAP DEMO -- Same degree progression, parallel modes")
+    print("  (G major -> G minor, piano, 3 voices)")
+    print("=" * 66)
+
+    # Step 1: generate a harmonic plan in G major via trace()
+    d = Designer(domain=MusicDomain(), seed=42)
+    d.set("key", "G"); d.set("mode", "major")
+    d.set("form", "binary"); d.set("num_phrases", 4); d.set("phrase_length", 4)
+    d.set("num_voices", 3); d.set("circle_of_fifths", 0.70)
+    d.set("chord_complexity", 0.40); d.set("harmonic_rhythm", 0.5)
+    d.set("instruments", ["piano"]); d.set("tempo_bpm", 108)
+    _, trace = d.trace()
+    source_plan = trace["harmonic_plan"]
+
+    print(f"\n  Source plan: {len(source_plan)} events  "
+          f"degrees {sorted(set(ev.degree for ev in source_plan))}  "
+          f"types {sorted(set(ev.chord_type for ev in source_plan))}")
+
+    # Step 2: build a MusicalAnalysis from the traced plan
+    base_section = SectionSpec(
+        id="main", label="Main", role="generic",
+        harmonic_plan=source_plan,      # inject pre-built plan
+        texture=TextureHints(
+            bass_type="walking", inner_voice_style="countermelody",
+            rhythmic_density=0.60, use_ornaments=True,
+        ),
+        energy=EnergyProfile(level=0.60, arc="arch"),
+    )
+
+    major_analysis = MusicalAnalysis(
+        key="G", mode="major", tempo_bpm=108, time_signature=[4, 4],
+        sections=[base_section],
+    )
+
+    # Step 3: derive minor version via transform
+    minor_analysis = mode_swap(major_analysis, "minor")
+
+    print(f"\n  Major plan types: {sorted(set(ev.chord_type for ev in major_analysis.sections[0].harmonic_plan))}")
+    print(f"  Minor plan types: {sorted(set(ev.chord_type for ev in minor_analysis.sections[0].harmonic_plan))}")
+
+    base = dict(_SYMBOLIC_BASE)
+    base.update(num_voices=3, instruments=["piano"], tempo_bpm=108,
+                use_ornaments=True, rhythmic_density=0.60)
+
+    for label, analysis in [("major", major_analysis), ("minor", minor_analysis)]:
+        score = generate_from_analysis(analysis, base_params=base, seed=300)
+        melody = score.tracks[0].notes
+        stats  = analyze_track(melody)
+        diat   = diatonic_pct(melody, analysis.key, analysis.mode)
+        print(f"\n  {analysis.key} {analysis.mode.upper():8s}  "
+              f"{stats['note_count']:3d} notes  "
+              f"step {stats['step_pct']:.0f}%  "
+              f"diatonic {diat:.0f}%")
+        print(f"    {note_line(melody, 12)}")
+
+        fname = f"mode_swap_G_{label}.mid"
+        with open(out_dir / fname, "wb") as f:
+            f.write(export.to_midi(score))
+        print(f"    -> {fname}")
+
+
+# -- Demo 3: Theme threading ---------------------------------------------------
+
+def run_theme_thread_demo(out_dir: pathlib.Path):
+    """
+    Define a single MotifDef and thread it through three contrasting sections
+    (baroque -> jazz -> rock).  Each section has a completely different texture
+    but plays the same motivic intervals (in its transformation for that phrase).
+
+    This demonstrates how the symbolic layer separates thematic identity from
+    style, which is the core of remix: keep the musical idea, change the dress.
+    """
+    print()
+    print("=" * 66)
+    print("  THEME THREADING DEMO -- One motif, three styles")
+    print("  (C major, motif woven through baroque / jazz / rock sections)")
+    print("=" * 66)
+
+    # A memorable four-note motif: up a third, step up, step down (da-da-da-DUM shape)
+    motif = MotifDef.from_intervals(
+        id="main_motif",
+        type="motif",
+        intervals=[3, 2, -2],        # +minor 3rd, +whole step, -whole step
+        durations=[0.5, 0.5, 0.5, 1.0],
+    )
+    print(f"\n  Motif intervals : {motif.intervals}")
+    print(f"  Inverted        : {motif.inverted}")
+    print(f"  Retrograde      : {motif.retrograde}")
+
+    analysis = MusicalAnalysis(
+        key="C", mode="major", tempo_bpm=100, time_signature=[4, 4],
+        sections=[
+            SectionSpec(
+                id="baroque", label="Baroque", role="generic",
+                harmonic_plan=[],
+                motif_id="main_motif",
+                texture=TextureHints(
+                    bass_type="walking", inner_voice_style="running_sixteenths",
+                    rhythmic_density=0.78, use_ornaments=True, swing=0.0,
+                    counterpoint=0.85, step_leap_ratio=0.72,
+                    instruments=["harpsichord"],
+                ),
+                energy=EnergyProfile(level=0.70, arc="arch"),
+                extra_params={"num_phrases": 2, "phrase_length": 4,
+                              "circle_of_fifths": 0.82, "tempo_bpm": 72},
+            ),
+            SectionSpec(
+                id="jazz", label="Jazz", role="generic",
+                harmonic_plan=[],
+                motif_id="main_motif",
+                texture=TextureHints(
+                    bass_type="walking", inner_voice_style="countermelody",
+                    rhythmic_density=0.50, swing=0.65, use_ornaments=False,
+                    counterpoint=0.45, step_leap_ratio=0.50,
+                    instruments=["piano"],
+                ),
+                energy=EnergyProfile(level=0.60, arc="arch"),
+                extra_params={"num_phrases": 2, "phrase_length": 4,
+                              "chord_complexity": 0.80, "modal_mixture": 0.35,
+                              "tempo_bpm": 60},
+            ),
+            SectionSpec(
+                id="rock", label="Rock", role="generic",
+                harmonic_plan=[],
+                motif_id="main_motif",
+                texture=TextureHints(
+                    bass_type="rock", inner_voice_style="block_chords",
+                    rhythmic_density=0.65, swing=0.0, use_ornaments=False,
+                    counterpoint=0.20, rhythmic_regularity=0.80,
+                    instruments=["electric_guitar", "bass_guitar"],
+                ),
+                energy=EnergyProfile(level=0.85, arc="arch"),
+                extra_params={"num_phrases": 2, "phrase_length": 4,
+                              "num_voices": 2, "chord_complexity": 0.10,
+                              "tempo_bpm": 140, "ending": "held"},
+            ),
+        ],
+    )
+    analysis.add_motif(motif)
+
+    score = generate_from_analysis(analysis, base_params=_SYMBOLIC_BASE, seed=500)
+
+    roles = score.metadata.get("voices", [])
+    print()
+    section_labels = [s.label for s in analysis.sections]
+    styles = ["baroque", "jazz", "rock"]
+    for i, (label, style) in enumerate(zip(section_labels, styles)):
+        print(f"  [{label.upper()} / {style}]")
+
+    if score.tracks:
+        melody = score.tracks[0].notes
+        print(f"\n  Combined soprano: {len(melody)} notes")
+        print(f"    {note_line(melody, 16)}")
+
+    fname = "theme_thread_baroque_jazz_rock.mid"
+    with open(out_dir / fname, "wb") as f:
+        f.write(export.to_midi(score))
+    total = sum(len(t.notes) for t in score.tracks)
+    print(f"\n  -> {fname}  ({total} notes, {len(score.tracks)} tracks)")
+
+
+# -- Demo 4: Energy arc --------------------------------------------------------
+
+def run_energy_arc_demo(out_dir: pathlib.Path):
+    """
+    Build a five-section piece with an explicit energy arc:
+        calm -> building -> peak -> release -> resolution
+
+    Each section gets the same harmonic style but its EnergyProfile.level drives
+    rhythmic_density automatically.  This shows how the IR's energy layer provides
+    a high-level compositional shape that the generator then realises in detail.
+    """
+    print()
+    print("=" * 66)
+    print("  ENERGY ARC DEMO -- Shaped energy across five sections")
+    print("  (E dorian, strings, calm -> peak -> resolution)")
+    print("=" * 66)
+
+    ENERGY_LEVELS = {
+        "calm":       (0.20, "ascending"),
+        "building":   (0.50, "ascending"),
+        "peak":       (0.90, "arch"),
+        "release":    (0.55, "descending"),
+        "resolution": (0.20, "descending"),
+    }
+
+    sections = []
+    for section_id, (level, arc) in ENERGY_LEVELS.items():
+        sections.append(SectionSpec(
+            id=section_id,
+            label=section_id.capitalize(),
+            role="generic",
+            harmonic_plan=[],
+            texture=TextureHints(
+                bass_type="arpeggiated" if level > 0.5 else "sustained",
+                inner_voice_style="countermelody" if level > 0.4 else "block_chords",
+                use_ornaments=(level > 0.6),
+            ),
+            energy=EnergyProfile(level=level, arc=arc),
+            extra_params={
+                "num_phrases": 2,
+                "phrase_length": 4,
+                "circle_of_fifths": 0.5 + level * 0.3,
+                "chord_complexity": 0.2 + level * 0.5,
+            },
+        ))
+
+    analysis = MusicalAnalysis(
+        key="E", mode="dorian", tempo_bpm=80, time_signature=[4, 4],
+        sections=sections,
+    )
+
+    base = dict(_SYMBOLIC_BASE)
+    base.update(
+        num_voices=3,
+        instruments=["strings", "viola", "cello"],
+        step_leap_ratio=0.65,
+        voice_independence=0.60,
+        counterpoint=0.60,
+    )
+
+    score = generate_from_analysis(analysis, base_params=base, seed=700)
+
+    print(f"\n  {'Section':<14} {'Energy':>7}  {'Arc':<12}  {'Notes':>6}  Excerpt")
+    print("  " + "-" * 62)
+
+    # Split the combined score back into per-section note counts (approximate)
+    if score.tracks:
+        soprano = score.tracks[0].notes
+        # Estimate section boundaries from cumulative beat count
+        section_beats_list = []
+        for sec in analysis.sections:
+            np = sec.extra_params.get("num_phrases", 2)
+            pl = sec.extra_params.get("phrase_length", 4)
+            ts = analysis.time_signature[0]
+            section_beats_list.append(np * pl * ts)
+
+        cursor = 0.0
+        note_idx = 0
+        for sec, target_beats in zip(analysis.sections, section_beats_list):
+            sec_notes = []
+            accum = 0.0
+            while note_idx < len(soprano) and accum < target_beats - 0.01:
+                n = soprano[note_idx]
+                sec_notes.append(n)
+                accum += n.duration
+                note_idx += 1
+            level, arc = ENERGY_LEVELS[sec.id]
+            excerpt = "  ".join(
+                f"{n.pitch}{['W','H','Q','E','S'][min(4,int(-0.5+1/max(n.duration,0.125)))]}"
+                for n in sec_notes[:6]
+            )
+            print(f"  {sec.label:<14} {level:>7.2f}  {arc:<12}  {len(sec_notes):>6}  {excerpt}")
+
+    fname = "energy_arc_dorian.mid"
+    with open(out_dir / fname, "wb") as f:
+        f.write(export.to_midi(score))
+    total = sum(len(t.notes) for t in score.tracks)
+    print(f"\n  -> {fname}  ({total} notes total)")
+
+
 # -- Entry point ---------------------------------------------------------------
 
 if __name__ == "__main__":
@@ -919,6 +1334,17 @@ if __name__ == "__main__":
     run_theme_demo(OUT_DIR)
     run_pipeline_demo(OUT_DIR)
     run_rock_demo(OUT_DIR)
+
+    # ── Symbolic IR demos ────────────────────────────────────────────────
+    print()
+    print("=" * 66)
+    print("  SYMBOLIC IR DEMOS")
+    print("  (MusicalAnalysis -> generate_from_analysis)")
+    print("=" * 66)
+    run_multisection_demo(OUT_DIR)
+    run_mode_swap_demo(OUT_DIR)
+    run_theme_thread_demo(OUT_DIR)
+    run_energy_arc_demo(OUT_DIR)
 
     print()
     print(f"All MIDI files written to: {OUT_DIR}")
