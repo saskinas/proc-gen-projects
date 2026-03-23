@@ -133,12 +133,20 @@ def to_midi(score: Any, ticks_per_beat: int = 480) -> bytes:
         "synth_lead": 80, "synth_bass": 38,   # Synth Bass 1
         "chiptune": 80,  "nes_pulse": 80,
     }
-    _CHANNEL: dict[str, int] = {
-        "drums": 9,   # MIDI channel 10 (0-indexed: 9) is always drums
-    }
+    # MIDI has 16 channels (0-15); channel 9 is reserved for drums.
+    # Assign each non-drum track its own unique channel, skipping 9.
+    _PITCHED_CHANNELS = [c for c in range(16) if c != 9]  # 15 available channels
+    _pitched_idx = 0
+    _channel_map: dict[int, int] = {}
+    for idx, t in enumerate(score.tracks):
+        if t.instrument == "drums":
+            _channel_map[idx] = 9
+        else:
+            _channel_map[idx] = _PITCHED_CHANNELS[_pitched_idx % len(_PITCHED_CHANNELS)]
+            _pitched_idx += 1
 
     for track_idx, track in enumerate(score.tracks):
-        channel = _CHANNEL.get(track.instrument, track_idx % 9)
+        channel = _channel_map[track_idx]
         program = _PROGRAM.get(track.instrument, 0)
 
         track_bytes = bytearray()

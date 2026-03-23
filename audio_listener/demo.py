@@ -230,9 +230,10 @@ def run_demo(midi_path: pathlib.Path | None = None) -> None:
     score = generate_from_analysis(analysis, base_params=base, seed=42)
 
     total_notes = sum(len(t.notes) for t in score.tracks)
+    roles = score.metadata.get("voices", [t.instrument for t in score.tracks])
     print(f"\n  Generated: {len(score.tracks)} tracks, {total_notes} notes")
-    for t in score.tracks:
-        print(f"    {t.instrument:<16} {len(t.notes):>5} notes")
+    for role, t in zip(roles, score.tracks):
+        print(f"    {role:<16} {t.instrument:<12} {len(t.notes):>5} notes")
 
     # ── 3. Save MIDI ─────────────────────────────────────────────────────────
     out_path = OUT_DIR / f"{stem}_reproduction.mid"

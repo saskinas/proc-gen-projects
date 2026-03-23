@@ -336,24 +336,31 @@ def replay_section(
 
     instrs        = base_params.get("instruments") or ["square"]
     default_instr = instrs[0] if instrs else "square"
-    instr_map = {
-        "soprano": default_instr,
-        "alto":    default_instr,
-        "tenor":   default_instr,
-        "bass":    default_instr,
-        "drums":   "drums",
-    }
+
+    def _instr_for(voice: str) -> str:
+        if voice == "drums":
+            return "drums"
+        return default_instr
+
+    # Replay all voices in a stable order: soprano → inner voices (sorted) → alto → bass → drums
+    inner_keys = sorted(k for k in seqs if k.startswith("inner_"))
+    voice_order = (
+        [v for v in ["soprano"] if v in seqs]
+        + inner_keys
+        + [v for v in ["alto", "bass", "drums"] if v in seqs]
+    )
 
     tracks: list = []
     roles:  list = []
 
-    for voice in ["soprano", "alto", "bass", "drums"]:
-        if voice not in seqs or not seqs[voice]:
+    for voice in voice_order:
+        ev_list = seqs.get(voice)
+        if not ev_list:
             continue
+        is_drum = voice == "drums"
         notes = []
-        for ev in seqs[voice]:
-            if voice == "drums":
-                # Drums use the {"pitch": name, ...} schema
+        for ev in ev_list:
+            if is_drum:
                 pitch = ev.get("pitch", "rest")
                 if pitch == "rest" or ev.get("degree") == "rest":
                     notes.append(Note("rest", ev["duration"], 0))
@@ -365,7 +372,7 @@ def replay_section(
 
         if not notes:
             continue
-        tracks.append(Track(instrument=instr_map[voice], notes=notes))
+        tracks.append(Track(instrument=_instr_for(voice), notes=notes))
         roles.append(voice)
 
     if not tracks:

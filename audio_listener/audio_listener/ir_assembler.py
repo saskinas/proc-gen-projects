@@ -240,6 +240,18 @@ def assemble(
     clean_drums = (_get_clean_channel_notes(data, assignment.drums)
                    if assignment.drums is not None else [])
 
+    # Inner voices: sort by mean pitch descending (highest-register first)
+    def _ch_mean_pitch(ch: int) -> float:
+        raw = data.notes_for_channel(ch)
+        return sum(n.pitch for n in raw) / len(raw) if raw else 0.0
+
+    inner_channels = sorted(
+        assignment.inner or [],
+        key=_ch_mean_pitch,
+        reverse=True,   # highest pitch first → inner_1 is the highest inner voice
+    )
+    clean_inner = [_get_clean_channel_notes(data, ch) for ch in inner_channels]
+
     # ── Phrase map helper ──────────────────────────────────────────────────────
     def _phrase_map_for_section(sec: SectionBoundary) -> list[tuple[float, float, int]]:
         pm = []
@@ -316,6 +328,14 @@ def assemble(
             seq = _extract_drum_sequence(clean_drums, s_beat, e_beat)
             if seq:
                 voice_seqs["drums"] = seq
+
+        # Capture all inner channels, sorted by mean pitch descending (highest first)
+        for inner_idx, inner_notes in enumerate(clean_inner):
+            if not inner_notes:
+                continue
+            seq = _extract_pitched_sequence(inner_notes, s_beat, e_beat, tonic_pc, scale_ivs)
+            if seq:
+                voice_seqs[f"inner_{inner_idx + 1}"] = seq
 
         section_specs.append(SectionSpec(
             id=f"{role}_{i}",

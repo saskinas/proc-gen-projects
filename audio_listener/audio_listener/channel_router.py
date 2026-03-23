@@ -16,7 +16,8 @@ class ChannelAssignment:
     countermelody: int | None        # secondary melodic channel (may be None)
     bass:          int | None        # bass channel (lowest register)
     drums:         int | None        # percussion channel (9 or noise)
-    ignored:       list[int]         # channels excluded from analysis
+    ignored:       list[int]         # channels excluded from analysis (sparse)
+    inner:         list[int]         = field(default_factory=list)  # all other active channels
 
 
 def assign_channels(data: MidiData) -> ChannelAssignment:
@@ -144,8 +145,8 @@ def assign_channels(data: MidiData) -> ChannelAssignment:
     if sorted_ch:
         counter_ch = sorted_ch.pop()        # next highest score → countermelody
 
-    # Anything left over
-    ignored.extend(sorted_ch)
+    # Remaining substantial channels become inner voices (captured in voice_sequences)
+    inner_voices = list(sorted_ch)
 
     # Sanity: if bass has higher mean pitch than melody, swap
     if melody_ch is not None and bass_ch is not None:
@@ -168,4 +169,5 @@ def assign_channels(data: MidiData) -> ChannelAssignment:
         bass=bass_ch,
         drums=drums_ch,
         ignored=ignored,
+        inner=inner_voices,
     )
