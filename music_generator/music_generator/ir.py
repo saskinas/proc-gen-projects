@@ -71,6 +71,24 @@ class MotifDef:
     retrograde: list[int]           = field(default_factory=list)
     retrograde_inversion: list[int] = field(default_factory=list)
 
+    # Extended pattern metadata (populated by motif_finder)
+    contour:      list[int]  = field(default_factory=list)
+    # Sign-pattern of intervals: +1 up, -1 down, 0 same.
+    # Useful for fuzzy / contour-class matching in remix transforms.
+
+    occurrences:  list[dict] = field(default_factory=list)
+    # Each entry: {"phrase_idx": int, "beat_offset": float, "transform": str}
+    # transform values: "original" | "inverted" | "retrograde" |
+    #   "retrograde_inversion" | "augmented" | "diminuted" | "seq(+N)"
+
+    sequence_step: int | None = None
+    # For type=="sequence": semitones of transposition per repetition.
+    # E.g. sequence_step=2 → motif repeats, each time a whole-step higher.
+
+    rhythm_class: str = "mixed"
+    # "even" | "dotted" | "syncopated" | "mixed"
+    # Derived from duration ratios; used by rhythmic-development transforms.
+
     def __post_init__(self) -> None:
         if not self.inverted:
             self.inverted = [-i for i in self.intervals]
@@ -78,6 +96,8 @@ class MotifDef:
             self.retrograde = list(reversed(self.intervals))
         if not self.retrograde_inversion:
             self.retrograde_inversion = list(reversed(self.inverted))
+        if not self.contour:
+            self.contour = [1 if i > 0 else (-1 if i < 0 else 0) for i in self.intervals]
 
     # ── Compatibility ──────────────────────────────────────────────────────
 
@@ -105,6 +125,10 @@ class MotifDef:
             "inverted":             self.inverted,
             "retrograde":           self.retrograde,
             "retrograde_inversion": self.retrograde_inversion,
+            "contour":              self.contour,
+            "occurrences":          self.occurrences,
+            "sequence_step":        self.sequence_step,
+            "rhythm_class":         self.rhythm_class,
         }
 
     @classmethod
@@ -117,6 +141,10 @@ class MotifDef:
             inverted=d.get("inverted", []),
             retrograde=d.get("retrograde", []),
             retrograde_inversion=d.get("retrograde_inversion", []),
+            contour=d.get("contour", []),
+            occurrences=d.get("occurrences", []),
+            sequence_step=d.get("sequence_step"),
+            rhythm_class=d.get("rhythm_class", "mixed"),
         )
 
     @classmethod
