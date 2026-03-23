@@ -153,11 +153,14 @@ class TextureHints:
     counterpoint:       float | None = None   # 0.0 – 1.0
     step_leap_ratio:    float | None = None   # 0.0 all leaps → 1.0 all steps
     instruments:        list | None  = None
+    drum_style:         str | None   = None   # none|rock|jazz|blues|funk|latin|waltz|brush
+    drum_intensity:     float | None = None   # 0.0 – 1.0
 
     _FIELDS = (
         "bass_type", "inner_voice_style", "rhythmic_density", "swing",
         "num_voices", "rhythmic_regularity", "melodic_direction",
         "use_ornaments", "counterpoint", "step_leap_ratio", "instruments",
+        "drum_style", "drum_intensity",
     )
 
     def apply_to(self, params: dict) -> dict:
@@ -204,6 +207,37 @@ class EnergyProfile:
         return cls(level=d.get("level", 0.5), arc=d.get("arc", "arch"))
 
 
+# ── TransitionSpec ────────────────────────────────────────────────────────────
+
+@dataclass
+class TransitionSpec:
+    """
+    Short passage appended to the END of a SectionSpec, bridging to the next.
+
+    type
+        "none"   — no transition (default)
+        "pickup" — ascending scalar run in the soprano approaching next section
+        "link"   — dominant-7 of the next section's tonic, all voices held
+        "fill"   — drum fill; other voices rest silently
+
+    duration_beats
+        0.0 = auto: one bar in the current time signature
+        > 0 = explicit length in quarter-note beats
+    """
+    type:           str   = "none"
+    duration_beats: float = 0.0
+
+    def to_dict(self) -> dict:
+        return {"type": self.type, "duration_beats": self.duration_beats}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "TransitionSpec":
+        return cls(
+            type=d.get("type", "none"),
+            duration_beats=float(d.get("duration_beats", 0.0)),
+        )
+
+
 # ── SectionSpec ───────────────────────────────────────────────────────────────
 
 @dataclass
@@ -239,6 +273,14 @@ class SectionSpec:
     energy:      EnergyProfile    = field(default_factory=EnergyProfile)
     repeat_of:   str | None       = None
     extra_params: dict            = field(default_factory=dict)
+    transition:   TransitionSpec  = field(default_factory=TransitionSpec)
+
+    # Captured note sequences from the source audio/MIDI (populated by audio_listener).
+    # Keys: "soprano" (melody), "alto" (counter), "bass", "drums".
+    # Each value is a list of {"pitch": str, "duration": float, "velocity": int} dicts.
+    # When non-empty, generate_from_analysis() replays these directly instead of
+    # running the generative pipeline, yielding a reproduction of the original.
+    voice_sequences: dict         = field(default_factory=dict)
 
     # ── Serialization ──────────────────────────────────────────────────────
 
@@ -262,6 +304,8 @@ class SectionSpec:
             "energy":      self.energy.to_dict(),
             "repeat_of":   self.repeat_of,
             "extra_params": self.extra_params,
+            "transition":  self.transition.to_dict(),
+            "voice_sequences": self.voice_sequences,
         }
 
     @classmethod
@@ -288,6 +332,8 @@ class SectionSpec:
             energy=EnergyProfile.from_dict(d.get("energy", {})),
             repeat_of=d.get("repeat_of"),
             extra_params=d.get("extra_params", {}),
+            transition=TransitionSpec.from_dict(d.get("transition", {})),
+            voice_sequences=d.get("voice_sequences", {}),
         )
 
 

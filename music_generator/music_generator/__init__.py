@@ -679,6 +679,9 @@ class ElaborationGenerator(GeneratorBase):
                 phrase_start_idx[ev.phrase_idx] = i
                 seen_phrases.add(ev.phrase_idx)
 
+        total_phrases = len(seen_phrases)
+        theme_dev     = params.get("melodic_theme_dev", "flat")
+
         def _vel_mod(ev_idx: int) -> int:
             """Arch-shaped velocity modifier peaking at 60% through each phrase."""
             if ev_idx >= len(harm_events):
@@ -765,6 +768,8 @@ class ElaborationGenerator(GeneratorBase):
                         phrase_num=phrase_num,
                         phrase_progress=phrase_progress,
                         regularity=regularity,
+                        total_phrases=total_phrases,
+                        theme_dev=theme_dev,
                     )
                     notes.extend(sub_notes)
                     last_sop_midi = [note_str_to_midi(n.pitch) for n in sub_notes[:6]]
@@ -796,28 +801,53 @@ class ElaborationGenerator(GeneratorBase):
                  step_leap, seq_prob, mel_dir, use_orn, vel, last_midi: list[int],
                  theme=None, tonic_pc: int = 0, mode_str: str = "major",
                  is_phrase_start: bool = False, phrase_num: int = 0,
-                 phrase_progress: float = 0.5, regularity: float = 0.6) -> list[Note]:
+                 phrase_progress: float = 0.5, regularity: float = 0.6,
+                 total_phrases: int = 1, theme_dev: str = "flat") -> list[Note]:
 
         # ── Apply melodic theme at phrase starts ──
         if theme and theme["type"] != "none" and is_phrase_start:
-            variant = phrase_num % 4
-            if variant == 0:
-                ivs = theme["intervals"]
-            elif variant == 1:
-                ivs = theme["inverted"]
-            elif variant == 2:
-                ivs = theme["retrograde"]
+            # Development stage: 0.0 = first phrase, 1.0 = last phrase
+            stage = phrase_num / max(total_phrases - 1, 1) if total_phrases > 1 else 0.5
+
+            # Select transformation variant (cycles through 4 classic forms)
+            all_variants = [
+                theme.get("intervals",  []),
+                theme.get("inverted",   []),
+                theme.get("retrograde", []),
+                list(reversed(theme.get("inverted", []))),
+            ]
+            base_ivs  = all_variants[phrase_num % 4]
+            base_durs = theme.get("durations", [1.0])
+            n_full    = len(base_durs)
+
+            # Motif development arc — controls how many notes are used
+            if theme_dev == "build":
+                # Sparse → full: start with 2 notes, grow each phrase
+                n_use = max(2, int(2 + stage * (n_full - 2) + 0.5))
+            elif theme_dev == "fragment":
+                # Full → sparse: start complete, shrink each phrase
+                n_use = max(2, int(n_full - stage * (n_full - 2) + 0.5))
+            elif theme_dev == "arch":
+                # Peak at middle: grow then shrink
+                n_use = max(2, int(n_full * (1 - abs(2 * stage - 1)) + 0.5))
+                n_use = max(2, n_use)
             else:
-                ivs = list(reversed(theme["inverted"]))  # retrograde inversion
+                # "flat" and "sequence": use full motif
+                n_use = n_full
 
-            durs = theme["durations"]
+            ivs  = base_ivs[:max(0, n_use - 1)]
+            durs = base_durs[:n_use]
+
+            # Sequence: shift starting pitch up by 2 semitones each phrase
+            seq_shift  = phrase_num * 2 if theme_dev == "sequence" else 0
+            start_midi = midi + seq_shift
+
             theme_total = sum(durs)
-            n_theme = len(durs)
 
-            # Build theme pitches from current position
-            all_scale = scale_midi_in_range(tonic_pc, mode_str, midi - 24, midi + 24)
-            t_pitches: list[int] = [midi]
-            for iv in ivs[:n_theme - 1]:
+            # Build theme pitches
+            all_scale  = scale_midi_in_range(tonic_pc, mode_str, start_midi - 24, start_midi + 24)
+            t_pitches: list[int] = [start_midi]
+            for iv in ivs:
                 next_p = t_pitches[-1] + iv
                 nearby = [p for p in all_scale if abs(p - next_p) <= 2]
                 t_pitches.append(nearest_pitch(next_p, nearby) if nearby else next_p)
@@ -830,7 +860,7 @@ class ElaborationGenerator(GeneratorBase):
             # Fill any remaining event duration after the theme
             remaining = dur - theme_total
             if remaining > 0.1:
-                last_p = t_pitches[-1]
+                last_p   = t_pitches[-1]
                 fill_sub = _subdiv(density, remaining)
                 n_fill   = max(1, int(round(remaining / fill_sub)))
                 fill_pts = [last_p]
@@ -1093,13 +1123,284 @@ class ElaborationGenerator(GeneratorBase):
         return out
 
 
-# ── Generator 4: Score Assembly ────────────────────────────────────────────────
+# ── Generator 4: Percussion ──────────────────────────────────────────────────
+
+class PercussionGenerator(GeneratorBase):
+    """
+    Generates a GM-compatible percussion track using rest-encoded Note timing.
+
+    Encoding contract (shared with export.to_midi):
+        Note("rest", gap_beats, 0)   — advance clock; no MIDI event emitted
+        Note(voice_name, 0.0, vel)   — drum hit at current position
+
+    Patterns are lists of (beat_within_bar, voice_name, vel_factor).
+    """
+
+    # ── Pattern banks ─────────────────────────────────────────────────────────
+
+    PATTERNS_4_4: dict[str, list] = {
+        "rock": [
+            (0.0, "kick",         1.00),
+            (0.5, "hihat_closed", 0.65),
+            (1.0, "snare",        1.00),
+            (1.5, "hihat_closed", 0.65),
+            (2.0, "kick",         1.00),
+            (2.5, "hihat_closed", 0.65),
+            (3.0, "snare",        1.00),
+            (3.5, "hihat_closed", 0.65),
+        ],
+        "jazz": [
+            (0.0,  "ride",  0.80), (0.5,  "ride",  0.55),
+            (1.0,  "ride",  0.72), (1.5,  "ride",  0.55),
+            (2.0,  "kick",  0.70), (2.0,  "ride",  0.80),
+            (2.5,  "ride",  0.55),
+            (3.0,  "snare", 0.65), (3.0,  "ride",  0.72),
+            (3.5,  "ride",  0.55),
+        ],
+        "blues": [
+            (0.0,  "kick",         1.00), (0.0,  "hihat_closed", 0.60),
+            (0.67, "hihat_closed", 0.50),
+            (1.0,  "hihat_closed", 0.65),
+            (1.33, "snare",        0.90), (1.33, "hihat_closed", 0.50),
+            (2.0,  "kick",         1.00), (2.0,  "hihat_closed", 0.60),
+            (2.67, "hihat_closed", 0.50),
+            (3.0,  "hihat_closed", 0.65),
+            (3.33, "snare",        0.90), (3.33, "hihat_closed", 0.50),
+        ],
+        "funk": [
+            (0.0,  "kick",         1.00),
+            (0.25, "hihat_closed", 0.55), (0.5,  "hihat_closed", 0.70),
+            (0.75, "snare",        0.55), (0.75, "hihat_closed", 0.55),
+            (1.0,  "hihat_closed", 0.70), (1.25, "kick",         0.85),
+            (1.5,  "snare",        1.00), (1.5,  "hihat_closed", 0.70),
+            (1.75, "hihat_closed", 0.55),
+            (2.0,  "kick",         1.00),
+            (2.25, "hihat_closed", 0.55), (2.5,  "hihat_closed", 0.70),
+            (2.75, "hihat_closed", 0.55),
+            (3.0,  "snare",        0.85), (3.0,  "hihat_closed", 0.70),
+            (3.25, "kick",         0.70),
+            (3.5,  "hihat_closed", 0.70),
+            (3.75, "snare",        0.60), (3.75, "hihat_closed", 0.55),
+        ],
+        "latin": [
+            (0.0,  "kick",      0.90), (0.0,  "ride",      0.70),
+            (0.5,  "ride",      0.60), (0.75, "snare_rim", 0.80),
+            (1.0,  "ride",      0.70), (1.5,  "kick",      0.75),
+            (1.5,  "ride",      0.60),
+            (2.0,  "ride",      0.70), (2.25, "snare_rim", 0.80),
+            (2.5,  "ride",      0.60),
+            (3.0,  "ride",      0.70), (3.0,  "kick",      0.85),
+            (3.5,  "ride",      0.60), (3.75, "snare_rim", 0.75),
+        ],
+        "brush": [
+            (0.0, "hihat_closed", 0.50), (0.5, "hihat_closed", 0.40),
+            (1.0, "snare",        0.55), (1.5, "hihat_closed", 0.40),
+            (2.0, "hihat_closed", 0.50), (2.5, "hihat_closed", 0.40),
+            (3.0, "snare",        0.55), (3.5, "hihat_closed", 0.40),
+        ],
+    }
+
+    PATTERNS_3_4: dict[str, list] = {
+        "waltz": [
+            (0.0, "kick",         1.00),
+            (1.0, "hihat_closed", 0.70),
+            (2.0, "hihat_closed", 0.70),
+        ],
+        "jazz": [
+            (0.0, "kick",  0.80), (0.0, "ride", 0.80),
+            (0.5, "ride",  0.55),
+            (1.0, "ride",  0.70), (1.5, "ride", 0.55),
+            (2.0, "snare", 0.65), (2.0, "ride", 0.70),
+            (2.5, "ride",  0.55),
+        ],
+        "rock": [
+            (0.0, "kick",         1.00),
+            (0.5, "hihat_closed", 0.65),
+            (1.0, "snare",        0.90),
+            (1.5, "hihat_closed", 0.65),
+            (2.0, "kick",         0.85),
+            (2.5, "hihat_closed", 0.65),
+        ],
+    }
+
+    PATTERNS_6_8: dict[str, list] = {
+        "rock": [
+            (0.0, "kick",         1.00), (0.5, "hihat_closed", 0.60),
+            (1.0, "hihat_closed", 0.65), (1.5, "hihat_closed", 0.60),
+            (2.0, "snare",        0.90), (2.5, "hihat_closed", 0.60),
+            (3.0, "kick",         0.85), (3.5, "hihat_closed", 0.60),
+            (4.0, "hihat_closed", 0.65), (4.5, "hihat_closed", 0.60),
+            (5.0, "snare",        0.80), (5.5, "hihat_closed", 0.60),
+        ],
+        "jazz": [
+            (0.0, "ride",  0.80), (1.0, "ride",  0.60),
+            (2.0, "snare", 0.65), (2.0, "ride",  0.70),
+            (3.0, "kick",  0.70), (3.0, "ride",  0.80),
+            (4.0, "ride",  0.60),
+            (5.0, "snare", 0.65), (5.0, "ride",  0.70),
+        ],
+        "latin": [
+            (0.0, "kick",      1.00), (0.0, "ride",      0.75),
+            (1.0, "ride",      0.60),
+            (2.0, "snare_rim", 0.80), (2.0, "ride",      0.70),
+            (3.0, "ride",      0.75),
+            (4.0, "ride",      0.60),
+            (5.0, "snare_rim", 0.75), (5.0, "ride",      0.70),
+        ],
+    }
+
+    BASE_VEL: dict[str, int] = {
+        "kick": 100, "snare": 90, "snare_rim": 72, "snare_electric": 90,
+        "hihat_closed": 65, "hihat_pedal": 55, "hihat_open": 75,
+        "ride": 68, "ride_bell": 80, "crash": 110, "crash2": 100,
+        "tom_hi": 85, "tom_hi_mid": 82, "tom_lo_mid": 80, "tom_lo": 78, "tom_floor": 82,
+        "cowbell": 75,
+    }
+
+    def generate(self, params: dict, context: dict) -> list:
+        """Return list[Note] for the percussion track (rest-encoded timing)."""
+        import random
+
+        drum_style = params.get("drum_style", "none")
+        if drum_style == "none":
+            return []
+
+        intensity     = float(params.get("drum_intensity", 0.7))
+        swing         = float(params.get("swing", 0.0))
+        time_sig      = params.get("time_signature", [4, 4])
+        num, den      = int(time_sig[0]), int(time_sig[1])
+        beats_per_bar = num * (4.0 / den)   # in quarter-note beats
+
+        harm_events = context.get("harmonic_plan", [])
+        total_beats = sum(ev.duration_beats for ev in harm_events)
+        if total_beats <= 0:
+            return []
+
+        rng = random.Random(self.seed)
+
+        # Select pattern bank by time signature numerator
+        if num == 3:
+            bank = self.PATTERNS_3_4
+        elif num == 6:
+            bank = self.PATTERNS_6_8
+        else:
+            bank = self.PATTERNS_4_4
+
+        # Graceful fallback: requested style -> rock -> first available
+        pattern = bank.get(drum_style) or bank.get("rock") or next(iter(bank.values()))
+
+        phrase_boundaries = self._phrase_boundaries(harm_events)
+
+        hits: list[tuple[float, str, int]] = []
+        bar_start = 0.0
+        bar_num   = 0
+
+        while bar_start < total_beats - 0.001:
+            bar_end = min(bar_start + beats_per_bar, total_beats)
+
+            # Crash cymbal on phrase boundary downbeats (skip bar 0)
+            if bar_start in phrase_boundaries and bar_num > 0:
+                vel = int(min(127, self.BASE_VEL["crash"] * intensity))
+                hits.append((bar_start, "crash", vel))
+
+            for beat_in_bar, voice, vel_factor in pattern:
+                abs_beat = bar_start + beat_in_bar
+                if abs_beat >= bar_end - 0.001:
+                    break
+                abs_beat = self._swing_beat(abs_beat, swing, beats_per_bar)
+                vel = int(min(127, max(1, self.BASE_VEL.get(voice, 80) * vel_factor * intensity)))
+                hits.append((abs_beat, voice, vel))
+
+            # Fill in the last bar before each phrase boundary
+            next_boundary = next((b for b in sorted(phrase_boundaries) if b > bar_start), None)
+            if next_boundary is not None and abs(next_boundary - bar_end) < 0.001:
+                hits.extend(self._fill_hits(bar_start, beats_per_bar, intensity, rng))
+
+            bar_start += beats_per_bar
+            bar_num   += 1
+
+        hits.sort(key=lambda h: (h[0], h[1]))
+        return self._hits_to_notes(hits, total_beats)
+
+    @staticmethod
+    def _swing_beat(abs_beat: float, swing: float, beats_per_bar: float) -> float:
+        """Push offbeat 8th-note positions (x.5) forward by swing * 0.167 beats."""
+        if swing <= 0.0:
+            return abs_beat
+        frac = abs_beat % 1.0
+        if abs(frac - 0.5) < 0.02:
+            return abs_beat + swing * 0.167
+        return abs_beat
+
+    @staticmethod
+    def _phrase_boundaries(harm_events) -> set:
+        """Return set of absolute beat positions where phrase_idx changes."""
+        boundaries: set[float] = set()
+        abs_beat   = 0.0
+        prev_idx   = None
+        for ev in harm_events:
+            if ev.phrase_idx != prev_idx and prev_idx is not None:
+                boundaries.add(round(abs_beat, 6))
+            prev_idx  = ev.phrase_idx
+            abs_beat += ev.duration_beats
+        return boundaries
+
+    @staticmethod
+    def _fill_hits(
+        bar_start: float,
+        beats_per_bar: float,
+        intensity: float,
+        rng,
+    ) -> list[tuple[float, str, int]]:
+        """Snare roll or tom fall in the last beat before a phrase boundary."""
+        if intensity < 0.35 or rng.random() > intensity * 0.8:
+            return []
+        fill_start = bar_start + beats_per_bar - 1.0
+        if fill_start < 0:
+            return []
+        hits = []
+        if rng.random() < 0.5:
+            # Snare roll: four 16th notes, building velocity
+            for k in range(4):
+                vel = int(min(127, (55 + k * 10) * intensity))
+                hits.append((fill_start + k * 0.25, "snare", vel))
+        else:
+            # Tom fall: hi -> hi-mid -> lo-mid -> floor
+            for k, tom in enumerate(["tom_hi", "tom_hi_mid", "tom_lo_mid", "tom_floor"]):
+                vel = int(min(127, 82 * intensity))
+                hits.append((fill_start + k * 0.25, tom, vel))
+        return hits
+
+    @staticmethod
+    def _hits_to_notes(hits: list, total_beats: float) -> list:
+        """
+        Convert sorted (abs_beat, voice, vel) tuples to rest-encoded Notes.
+
+        Note("rest", gap, 0)    — advance clock (velocity=0, no MIDI event)
+        Note(voice, 0.0, vel)   — drum hit at current position (duration=0)
+        """
+        notes: list[Note] = []
+        cursor = 0.0
+        for abs_beat, voice, vel in hits:
+            gap = abs_beat - cursor
+            if gap > 0.001:
+                notes.append(Note("rest", gap, 0))
+                cursor = abs_beat
+            notes.append(Note(voice, 0.0, vel))
+        # Pad to total length
+        if cursor < total_beats - 0.001:
+            notes.append(Note("rest", total_beats - cursor, 0))
+        return notes
+
+
+# ── Generator 5: Score Assembly ────────────────────────────────────────────────
 
 class ScoreAssemblyGenerator(GeneratorBase):
     """Maps elaborated voice notes to instruments and builds the MusicScore."""
 
     def generate(self, params: dict, context: dict) -> MusicScore:
         elaborated: dict[str, list[Note]] = context["elaboration"]
+        perc_notes: list = context.get("percussion", [])
         instruments: list[str] = list(params["instruments"])
         num_voices  = params["num_voices"]
         roles       = VOICE_ROLES[num_voices]
@@ -1120,6 +1421,11 @@ class ScoreAssemblyGenerator(GeneratorBase):
             for v in roles
         ]
 
+        if perc_notes:
+            tracks.append(Track(instrument="drums", notes=perc_notes))
+
+        all_roles = list(roles) + (["drums"] if perc_notes else [])
+
         return MusicScore(
             tempo_bpm      = int(params["tempo_bpm"]),
             time_signature = (int(params["time_signature"][0]),
@@ -1127,7 +1433,7 @@ class ScoreAssemblyGenerator(GeneratorBase):
             tracks         = tracks,
             metadata       = {
                 "intent":  params.get("_intent_summary", {}),
-                "voices":  roles,
+                "voices":  all_roles,
                 "form":    params.get("form"),
             },
         )
@@ -1231,6 +1537,20 @@ class MusicDomain(DomainBase):
                  choices=["none", "motif", "fugue_subject"],
                  description="Recurring motif applied at phrase starts with cycled transformations"),
 
+            # ── Drums ──
+            Rule("drum_style",          type=str,   default="none",
+                 choices=["none", "rock", "jazz", "blues", "funk", "latin", "waltz", "brush"],
+                 description="Percussion pattern style (none = no drums)"),
+            Rule("drum_intensity",      type=float, default=0.7,  range=(0.0, 1.0),
+                 description="Drum velocity scaling and fill density"),
+
+            Rule("melodic_theme_dev",   type=str,   default="flat",
+                 choices=["flat", "build", "fragment", "arch", "sequence"],
+                 description="How the melodic theme evolves across phrases: "
+                             "flat=cyclic transforms only, build=sparse-to-full, "
+                             "fragment=full-to-sparse, arch=peak-at-middle, "
+                             "sequence=shift motif up scale each phrase"),
+
             # ── Rock / power chords ──
             Rule("power_chords",        type=bool,  default=False,
                  description="Replace all triads with power chords (root+fifth only)"),
@@ -1261,9 +1581,12 @@ class MusicDomain(DomainBase):
             "tempo_bpm", "time_signature", "rhythmic_density", "rhythmic_regularity", "swing",
             "instruments",
             "melodic_theme",
+            "melodic_theme_dev",
             "power_chords",
             "ending",
             "intro",
+            "drum_style",
+            "drum_intensity",
         ]
         p: dict[str, Any] = {k: intent.get(k) for k in keys}
         p["_intent_summary"] = dict(intent.items())
@@ -1272,6 +1595,7 @@ class MusicDomain(DomainBase):
         plan.add_step("theme",         p)
         plan.add_step("voice_lines",   p)
         plan.add_step("elaboration",   p)
+        plan.add_step("percussion",    p)
         plan.add_step("score",         p)
         return plan
 
@@ -1289,5 +1613,6 @@ class MusicDomain(DomainBase):
             "theme":         ThemeGenerator,
             "voice_lines":   VoiceLeadingGenerator,
             "elaboration":   ElaborationGenerator,
+            "percussion":    PercussionGenerator,
             "score":         ScoreAssemblyGenerator,
         }

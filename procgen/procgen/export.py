@@ -47,6 +47,27 @@ for _oct in range(0, 9):
     for _i, _n in enumerate(_NOTES):
         _NOTE_MIDI[f"{_n}{_oct}"] = (_oct + 1) * 12 + _i
 
+# GM drum map: voice name -> MIDI note number (channel 10 / index 9)
+_DRUM_MIDI: dict[str, int] = {
+    "kick":           36,
+    "snare":          38,
+    "snare_rim":      37,
+    "snare_electric": 40,
+    "hihat_closed":   42,
+    "hihat_pedal":    44,
+    "hihat_open":     46,
+    "tom_hi":         50,
+    "tom_hi_mid":     48,
+    "tom_lo_mid":     47,
+    "tom_lo":         45,
+    "tom_floor":      43,
+    "crash":          49,
+    "crash2":         57,
+    "ride":           51,
+    "ride_bell":      53,
+    "cowbell":        56,
+}
+
 
 def _var_len(value: int) -> bytes:
     """Encode an integer as MIDI variable-length quantity."""
@@ -105,6 +126,12 @@ def to_midi(score: Any, ticks_per_beat: int = 480) -> bytes:
         "lute": 24, "oboe": 68, "clarinet": 71, "bassoon": 70,
         "trumpet": 56, "horn": 60,
         "electric_guitar": 29, "dist_guitar": 30, "bass_guitar": 33,
+        # Synth / NES-style voices
+        "square": 80,    "square_wave": 80,   # Square Lead (closest to NES pulse)
+        "sawtooth": 81,  "saw_wave":    81,   # Sawtooth Lead
+        "triangle": 65,  "triangle_wave": 65, # Alto Sax (bright hollow, ~triangle)
+        "synth_lead": 80, "synth_bass": 38,   # Synth Bass 1
+        "chiptune": 80,  "nes_pulse": 80,
     }
     _CHANNEL: dict[str, int] = {
         "drums": 9,   # MIDI channel 10 (0-indexed: 9) is always drums
@@ -123,23 +150,54 @@ def to_midi(score: Any, ticks_per_beat: int = 480) -> bytes:
         # Convert notes to events (absolute tick)
         events = []
         abs_tick = 0
-        for note in track.notes:
-            dur_ticks = int(note.duration * ticks_per_beat)
-            midi_note = _NOTE_MIDI.get(note.pitch, 60)
-            events.append((abs_tick, "note_on",  channel, midi_note, note.velocity))
-            events.append((abs_tick + dur_ticks, "note_off", channel, midi_note, 0))
-            abs_tick += dur_ticks
+        if channel == 9:
+            # Drum track: rest-encoded timing
+            # Note("rest", gap, 0)      -> advance clock only
+            # Note(voice, 0.0, vel)     -> drum hit at current position
+            for note in track.notes:
+                dur_ticks = int(note.duration * ticks_per_beat)
+                if note.velocity == 0:
+                    abs_tick += dur_ticks
+                else:
+                    midi_note = _DRUM_MIDI.get(note.pitch, None)
+                    if midi_note is None:
+                        try:
+                            midi_note = int(note.pitch)  # numeric MIDI note stored as string
+                        except (ValueError, TypeError):
+                            midi_note = _NOTE_MIDI.get(note.pitch, 36)
+                    events.append((abs_tick, "note_on", channel, midi_note, note.velocity))
+                    off_tick = abs_tick + max(1, ticks_per_beat // 8)
+                    events.append((off_tick, "note_off", channel, midi_note, 0))
+                    abs_tick += dur_ticks
+        else:
+            for note in track.notes:
+                dur_ticks = int(note.duration * ticks_per_beat)
+                if note.pitch.startswith("__pc__"):
+                    instr_name = note.pitch[6:]
+                    events.append((abs_tick, "program_change", channel, _PROGRAM.get(instr_name, 0), 0))
+                    abs_tick += dur_ticks
+                    continue
+                if note.pitch == "rest":
+                    abs_tick += dur_ticks
+                    continue
+                midi_note = _NOTE_MIDI.get(note.pitch, 60)
+                events.append((abs_tick, "note_on",  channel, midi_note, note.velocity))
+                events.append((abs_tick + dur_ticks, "note_off", channel, midi_note, 0))
+                abs_tick += dur_ticks
 
         # Sort by time (note_off before note_on at same tick)
-        events.sort(key=lambda e: (e[0], 0 if e[1] == "note_off" else 1))
+        events.sort(key=lambda e: (e[0], {"note_off": 0, "program_change": 1, "note_on": 2}.get(e[1], 2)))
 
         prev_tick = 0
         for abs_tick, kind, ch, pitch, vel in events:
             delta = abs_tick - prev_tick
             prev_tick = abs_tick
             track_bytes += _var_len(delta)
-            status = (0x90 | ch) if kind == "note_on" else (0x80 | ch)
-            track_bytes += bytes([status, pitch & 0x7F, vel & 0x7F])
+            if kind == "program_change":
+                track_bytes += bytes([0xC0 | ch, pitch & 0x7F])
+            else:
+                status = (0x90 | ch) if kind == "note_on" else (0x80 | ch)
+                track_bytes += bytes([status, pitch & 0x7F, vel & 0x7F])
 
         # End of track
         track_bytes += _var_len(0) + b"\xFF\x2F\x00"

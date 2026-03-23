@@ -309,6 +309,87 @@ def augment_motif(
     return result
 
 
+# ── Harmonic development ──────────────────────────────────────────────────────
+
+def develop_harmony(
+    analysis: "MusicalAnalysis",
+    complexity_arc: str = "flat",
+    rhythm_arc: str = "flat",
+) -> "MusicalAnalysis":
+    """
+    Scale chord_complexity and harmonic_rhythm progressively across sections.
+
+    Only sections whose harmonic_plan is empty are affected — sections with a
+    pre-built plan are left untouched.  The arc functions map the section index
+    (0 = first, 1 = last) to a value in the given range.
+
+    complexity_arc / rhythm_arc:
+        "flat"       — no override applied
+        "ascending"  — rises from low to high across sections
+        "descending" — falls from high to low
+        "arch"       — peaks at the middle section
+
+    Example — build tension to a climax then release::
+
+        analysis = develop_harmony(
+            analysis,
+            complexity_arc="arch",   # simple -> chromatic -> simple
+            rhythm_arc="ascending",  # slow harmonic rhythm -> fast at climax
+        )
+    """
+    result = deepcopy(analysis)
+    n = len(result.sections)
+    if n < 2:
+        return result
+
+    def _arc(idx: int, arc: str, lo: float, hi: float):
+        t = idx / (n - 1)
+        if arc == "ascending":  return lo + t * (hi - lo)
+        if arc == "descending": return hi - t * (hi - lo)
+        if arc == "arch":       return lo + (1 - abs(2 * t - 1)) * (hi - lo)
+        return None  # flat -> no override
+
+    for i, section in enumerate(result.sections):
+        if section.harmonic_plan:   # pre-built — leave untouched
+            continue
+        c_val = _arc(i, complexity_arc, 0.20, 0.80)
+        r_val = _arc(i, rhythm_arc,     0.25, 0.80)
+        if c_val is not None:
+            section.extra_params.setdefault("chord_complexity", round(c_val, 3))
+        if r_val is not None:
+            section.extra_params.setdefault("harmonic_rhythm",  round(r_val, 3))
+
+    return result
+
+
+def modulate_section(
+    analysis: "MusicalAnalysis",
+    section_id: str,
+    key: str,
+    mode: str | None = None,
+) -> "MusicalAnalysis":
+    """
+    Override the tonal centre for a specific section.
+
+    Sets ``key`` (and optionally ``mode``) in the section's ``extra_params``,
+    which ``generate_section()`` applies after the global analysis key/mode.
+    Any pre-built harmonic_plan is cleared so HarmonicPlanGenerator rebuilds
+    it in the new key.
+
+    Example — bridge in the relative major::
+
+        analysis = modulate_section(analysis, "bridge", key="C", mode="major")
+    """
+    result = deepcopy(analysis)
+    for section in result.sections:
+        if section.id == section_id:
+            section.extra_params["key"] = key
+            if mode is not None:
+                section.extra_params["mode"] = mode
+            section.harmonic_plan = []   # regenerate in new key
+    return result
+
+
 # ── Composition helper ────────────────────────────────────────────────────────
 
 def compose(

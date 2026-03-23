@@ -97,6 +97,171 @@ def _make_theme_injector(theme_dict: dict):
     return _ThemeInjector
 
 
+# ── Transition generation ─────────────────────────────────────────────────────
+
+def generate_transition(
+    spec: "TransitionSpec",
+    prev_score,
+    next_key: str,
+    next_mode: str,
+    time_signature: list,
+    tempo_bpm: int,
+    seed: int = 0,
+):
+    """
+    Build a short MusicScore bridging two sections.
+
+    spec          — TransitionSpec describing the type and duration
+    prev_score    — MusicScore of the completed section (provides voice roles)
+    next_key      — tonic of the incoming section (for pickup/link)
+    next_mode     — mode of the incoming section
+
+    Returns None for type "none".
+    """
+    from music_generator import (
+        MusicScore, Track, Note, ROOT_TO_PC,
+        scale_midi_in_range, chord_midi_in_range,
+        midi_to_note, VOICE_RANGES,
+    )
+    import random
+
+    if spec.type == "none":
+        return None
+
+    rng           = random.Random(seed)
+    num, den      = int(time_signature[0]), int(time_signature[1])
+    beats_per_bar = num * (4.0 / den)
+    duration      = spec.duration_beats if spec.duration_beats > 0 else beats_per_bar
+
+    roles     = prev_score.metadata.get("voices", [])
+    non_drum  = [r for r in roles if r != "drums"]
+    track_map = {
+        r: prev_score.tracks[i]
+        for i, r in enumerate(roles)
+        if i < len(prev_score.tracks)
+    }
+
+    tonic_pc   = ROOT_TO_PC.get(next_key, 0)
+    tracks:    list = []
+    out_roles: list = []
+
+    if spec.type == "pickup":
+        for role in non_drum:
+            instr      = track_map[role].instrument if role in track_map else "piano"
+            v_lo, v_hi = VOICE_RANGES.get(role, (48, 84))
+            if role == "soprano":
+                center = (v_lo + v_hi) // 2 + 4
+                scale  = sorted(scale_midi_in_range(tonic_pc, next_mode, center - 12, center + 1))
+                n      = max(3, min(8, int(duration * 4)))
+                run    = scale[-n:] if len(scale) >= n else scale
+                sub    = duration / max(len(run), 1)
+                notes  = [Note(midi_to_note(p), sub, min(112, 68 + i * 6))
+                          for i, p in enumerate(run)]
+            else:
+                t     = track_map.get(role)
+                last  = next((n for n in reversed(t.notes) if n.velocity > 0), None) if t else None
+                pitch = last.pitch if last else midi_to_note(v_lo + 12)
+                notes = [Note(pitch, duration, 52)]
+            tracks.append(Track(instrument=instr, notes=notes))
+            out_roles.append(role)
+
+    elif spec.type == "link":
+        dom_pc = (tonic_pc + 7) % 12
+        for role in non_drum:
+            instr      = track_map[role].instrument if role in track_map else "piano"
+            v_lo, v_hi = VOICE_RANGES.get(role, (36, 84))
+            dom_ns     = chord_midi_in_range(dom_pc, "dom7", v_lo, v_hi)
+            if not dom_ns:
+                dom_ns = chord_midi_in_range(dom_pc, "maj", v_lo, v_hi)
+            pitch = midi_to_note(dom_ns[len(dom_ns) // 2] if dom_ns else v_lo + 7)
+            tracks.append(Track(instrument=instr, notes=[Note(pitch, duration, 65)]))
+            out_roles.append(role)
+
+    elif spec.type == "fill":
+        for role in non_drum:
+            instr = track_map[role].instrument if role in track_map else "piano"
+            tracks.append(Track(instrument=instr, notes=[Note("C4", duration, 0)]))
+            out_roles.append(role)
+        if "drums" in roles:
+            fill_notes = []
+            n_hits = max(4, int(duration * 4))
+            sub    = duration / n_hits
+            half   = n_hits // 2
+            seq    = (["snare"] * half + ["tom_hi", "tom_hi_mid", "tom_lo_mid", "tom_floor"]
+                      * ((n_hits - half + 3) // 4))[:n_hits]
+            cursor = 0.0
+            for k, voice in enumerate(seq):
+                if k > 0:
+                    fill_notes.append(Note("rest", sub, 0))
+                    cursor += sub
+                vel = min(127, int(65 + k * (55 / max(n_hits - 1, 1))))
+                fill_notes.append(Note(voice, 0.0, vel))
+            if cursor < duration - 0.001:
+                fill_notes.append(Note("rest", duration - cursor, 0))
+            tracks.append(Track(instrument="drums", notes=fill_notes))
+            out_roles.append("drums")
+
+    if not tracks:
+        return None
+
+    return MusicScore(
+        tempo_bpm=tempo_bpm,
+        time_signature=tuple(time_signature),
+        tracks=tracks,
+        metadata={"voices": out_roles, "form": "transition", "intent": {}},
+    )
+
+
+# ── Replay mode ───────────────────────────────────────────────────────────────
+
+def replay_section(
+    section: "SectionSpec",
+    analysis: "MusicalAnalysis",
+    base_params: dict,
+):
+    """
+    Render captured voice_sequences directly as a MusicScore.
+
+    This produces an exact reproduction of the original MIDI data for the
+    section, bypassing all generative logic.  Returns None if the section
+    has no voice_sequences.
+    """
+    from music_generator import MusicScore, Track, Note
+
+    seqs = section.voice_sequences
+    if not seqs:
+        return None
+
+    instrs = base_params.get("instruments") or ["square"]
+    default_instr = instrs[0] if instrs else "square"
+    instr_map = {
+        "soprano": default_instr,
+        "alto":    default_instr,
+        "tenor":   default_instr,
+        "bass":    default_instr,
+        "drums":   "drums",
+    }
+
+    tracks = []
+    roles  = []
+    for voice in ["soprano", "alto", "bass", "drums"]:
+        if voice not in seqs or not seqs[voice]:
+            continue
+        notes = [Note(n["pitch"], n["duration"], n["velocity"]) for n in seqs[voice]]
+        tracks.append(Track(instrument=instr_map[voice], notes=notes))
+        roles.append(voice)
+
+    if not tracks:
+        return None
+
+    return MusicScore(
+        tempo_bpm      = analysis.tempo_bpm,
+        time_signature = tuple(analysis.time_signature),
+        tracks         = tracks,
+        metadata       = {"voices": roles, "form": "replay", "intent": {}},
+    )
+
+
 # ── Section generation ────────────────────────────────────────────────────────
 
 def generate_section(
@@ -218,6 +383,9 @@ def concatenate_scores(scores) -> object:
         for role in all_roles:
             if role in track_map:
                 track = track_map[role]
+                # Emit MIDI program-change marker when instrument changes mid-piece
+                if role in instruments and instruments[role] != track.instrument:
+                    merged[role].append(Note(f"__pc__{track.instrument}", 0.0, 0))
                 merged[role].extend(track.notes)
                 instruments[role] = track.instrument
             elif section_beats > 0:
@@ -266,11 +434,36 @@ def generate_from_analysis(
     -------
     MusicScore ready for export.to_midi().
     """
+    from music_generator.ir import TransitionSpec  # noqa: PLC0415
+
     scores = []
     for i, section in enumerate(analysis.sections):
         section_seed = seed + i * 1000
-        score = generate_section(section, analysis, base_params, seed=section_seed)
+        # Use direct replay if captured voice sequences are available
+        score = None
+        if section.voice_sequences:
+            score = replay_section(section, analysis, base_params)
+        if score is None:
+            score = generate_section(section, analysis, base_params, seed=section_seed)
         scores.append(score)
+
+        # Generate transition material after this section (not after the last)
+        if i < len(analysis.sections) - 1:
+            next_sec  = analysis.sections[i + 1]
+            trans_key  = next_sec.extra_params.get("key",  analysis.key)
+            trans_mode = next_sec.extra_params.get("mode", analysis.mode)
+            trans = generate_transition(
+                spec=section.transition,
+                prev_score=score,
+                next_key=trans_key,
+                next_mode=trans_mode,
+                time_signature=list(analysis.time_signature),
+                tempo_bpm=analysis.tempo_bpm,
+                seed=section_seed + 500,
+            )
+            if trans is not None:
+                scores.append(trans)
+
     return concatenate_scores(scores)
 
 

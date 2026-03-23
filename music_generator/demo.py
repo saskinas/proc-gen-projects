@@ -26,11 +26,12 @@ from procgen import Designer, export
 from music_generator import MusicDomain
 from music_generator import NOTE_NAMES, ROOT_TO_PC, SCALE_INTERVALS, note_str_to_midi
 from music_generator.ir import (
-    MusicalAnalysis, SectionSpec, MotifDef, TextureHints, EnergyProfile,
+    MusicalAnalysis, SectionSpec, MotifDef, TextureHints, EnergyProfile, TransitionSpec,
 )
 from music_generator.compose import generate_from_analysis
 from music_generator.transforms import (
     mode_swap, transpose, apply_style_preset, assign_motif, compose as ir_compose,
+    develop_harmony, modulate_section,
 )
 
 OUT_DIR = HERE / "demo_output" / "midi"
@@ -1320,6 +1321,326 @@ def run_energy_arc_demo(out_dir: pathlib.Path):
     print(f"\n  -> {fname}  ({total} notes total)")
 
 
+def run_drums_demo(out_dir: pathlib.Path):
+    """
+    Demonstrate percussion generation across four styles.
+
+    Each variant uses the same A minor chord sequence but a different drum style,
+    showing how drum_style and drum_intensity shape the feel without touching
+    the melodic or harmonic pipeline.
+
+    Styles demonstrated:
+        rock    -- backbeat kick/snare with closed hi-hat
+        jazz    -- ride cymbal with light snare and walking feel
+        funk    -- syncopated 16th-note hi-hat grid
+        latin   -- ride + snare_rim clave pattern
+    """
+    print()
+    print("=" * 66)
+    print("  DRUMS DEMO -- Percussion across four styles")
+    print("  (A minor, 120 BPM, same harmony, different drum feel)")
+    print("=" * 66)
+
+    DRUM_STYLES = [
+        ("rock",  0.80, "piano",       "bass"),
+        ("jazz",  0.65, "piano",       "bass"),
+        ("funk",  0.75, "piano",       "bass_guitar"),
+        ("latin", 0.70, "piano",       "bass"),
+    ]
+
+    base_section = dict(
+        num_phrases=2,
+        phrase_length=4,
+        circle_of_fifths=0.65,
+        chord_complexity=0.35,
+        step_leap_ratio=0.68,
+        melodic_direction="arch",
+    )
+
+    for style, intensity, instr_hi, instr_lo in DRUM_STYLES:
+        d = Designer(domain=MusicDomain(), seed=42)
+        d.set("key",              "A")
+        d.set("mode",             "minor")
+        d.set("tempo_bpm",        120)
+        d.set("time_signature",   [4, 4])
+        d.set("num_voices",       3)
+        d.set("instruments",      [instr_hi, instr_hi, instr_lo])
+        d.set("num_phrases",      base_section["num_phrases"])
+        d.set("phrase_length",    base_section["phrase_length"])
+        d.set("circle_of_fifths", base_section["circle_of_fifths"])
+        d.set("chord_complexity", base_section["chord_complexity"])
+        d.set("step_leap_ratio",  base_section["step_leap_ratio"])
+        d.set("melodic_direction",base_section["melodic_direction"])
+        d.set("drum_style",       style)
+        d.set("drum_intensity",   intensity)
+        # Style-specific tweaks
+        if style == "jazz":
+            d.set("swing", 0.60)
+            d.set("bass_type", "walking")
+        elif style == "funk":
+            d.set("rhythmic_density",    0.70)
+            d.set("rhythmic_regularity", 0.45)
+            d.set("bass_type",           "rock")
+        elif style == "latin":
+            d.set("bass_type", "arpeggiated")
+
+        score = d.generate()
+
+        # Count drum hits (non-rest notes in drum track)
+        drum_track = next((t for t in score.tracks if t.instrument == "drums"), None)
+        drum_hits  = sum(1 for n in drum_track.notes if n.velocity > 0) if drum_track else 0
+        total_notes = sum(len(t.notes) for t in score.tracks)
+
+        fname = f"drums_{style}_a_minor.mid"
+        with open(out_dir / fname, "wb") as f:
+            f.write(export.to_midi(score))
+        print(f"  {style:<8}  intensity={intensity:.2f}  drum_hits={drum_hits:>4}  "
+              f"total={total_notes:>5}  -> {fname}")
+
+    # Multi-section piece with drums in TextureHints
+    print()
+    print("  Multi-section piece with per-section drum styles:")
+
+    sections = [
+        SectionSpec("intro",   "Intro",   "intro",   harmonic_plan=[],
+                    texture=TextureHints(bass_type="sustained", drum_style="brush", drum_intensity=0.45),
+                    energy=EnergyProfile(level=0.3, arc="ascending"),
+                    extra_params={"num_phrases": 2, "phrase_length": 2}),
+        SectionSpec("verse",   "Verse",   "verse",   harmonic_plan=[],
+                    texture=TextureHints(bass_type="walking",   drum_style="jazz",  drum_intensity=0.65),
+                    energy=EnergyProfile(level=0.55, arc="arch"),
+                    extra_params={"num_phrases": 2, "phrase_length": 4}),
+        SectionSpec("chorus",  "Chorus",  "chorus",  harmonic_plan=[],
+                    texture=TextureHints(bass_type="rock",      drum_style="rock",  drum_intensity=0.85),
+                    energy=EnergyProfile(level=0.85, arc="arch"),
+                    extra_params={"num_phrases": 2, "phrase_length": 4}),
+        SectionSpec("bridge",  "Bridge",  "bridge",  harmonic_plan=[],
+                    texture=TextureHints(bass_type="arpeggiated", drum_style="funk", drum_intensity=0.75),
+                    energy=EnergyProfile(level=0.70, arc="descending"),
+                    extra_params={"num_phrases": 2, "phrase_length": 4}),
+        SectionSpec("outro",   "Outro",   "outro",   harmonic_plan=[],
+                    texture=TextureHints(bass_type="sustained", drum_style="brush", drum_intensity=0.35),
+                    energy=EnergyProfile(level=0.25, arc="descending"),
+                    extra_params={"num_phrases": 2, "phrase_length": 2}),
+    ]
+
+    analysis = MusicalAnalysis(
+        key="A", mode="minor", tempo_bpm=110, time_signature=[4, 4],
+        sections=sections,
+    )
+
+    base = dict(_SYMBOLIC_BASE)
+    base.update(
+        num_voices=3,
+        instruments=["piano", "piano", "bass"],
+        swing=0.0,
+        drum_style="rock",      # overridden per-section via TextureHints
+        drum_intensity=0.70,
+    )
+
+    score = generate_from_analysis(analysis, base_params=base, seed=500)
+    drum_track = next((t for t in score.tracks if t.instrument == "drums"), None)
+    drum_hits  = sum(1 for n in drum_track.notes if n.velocity > 0) if drum_track else 0
+    total_notes = sum(len(t.notes) for t in score.tracks)
+
+    fname = "drums_multisection_a_minor.mid"
+    with open(out_dir / fname, "wb") as f:
+        f.write(export.to_midi(score))
+    print(f"  5-section piece  drum_hits={drum_hits}  total_notes={total_notes}  -> {fname}")
+
+
+def run_transitions_demo(out_dir: pathlib.Path):
+    """
+    Demonstrate transition passages between sections.
+
+    Three transition types are shown back-to-back in a 4-section piece:
+
+        Verse   --[pickup]--> Chorus   -- ascending scalar run into chorus tonic
+        Chorus  --[link]-->   Bridge   -- held dominant-7 pivot chord
+        Bridge  --[fill]-->   Outro    -- drum fill, other voices rest
+
+    The per-section instrument changes (piano -> strings -> piano) test that
+    MIDI program-change events are correctly inserted at section boundaries.
+    """
+    print()
+    print("=" * 66)
+    print("  TRANSITIONS DEMO -- pickup / link / fill between sections")
+    print("  (G major, 110 BPM, per-section instrument changes)")
+    print("=" * 66)
+
+    sections = [
+        SectionSpec("verse",  "Verse",  "verse",  harmonic_plan=[],
+                    texture=TextureHints(bass_type="walking",
+                                        instruments=["piano", "piano", "bass"]),
+                    energy=EnergyProfile(level=0.50, arc="ascending"),
+                    extra_params={"num_phrases": 2, "phrase_length": 4},
+                    transition=TransitionSpec(type="pickup")),
+
+        SectionSpec("chorus", "Chorus", "chorus", harmonic_plan=[],
+                    texture=TextureHints(bass_type="rock",
+                                        instruments=["strings", "viola", "cello"],
+                                        drum_style="rock", drum_intensity=0.80),
+                    energy=EnergyProfile(level=0.85, arc="arch"),
+                    extra_params={"num_phrases": 2, "phrase_length": 4},
+                    transition=TransitionSpec(type="link", duration_beats=2.0)),
+
+        SectionSpec("bridge", "Bridge", "bridge", harmonic_plan=[],
+                    texture=TextureHints(bass_type="arpeggiated",
+                                        instruments=["piano", "piano", "bass"],
+                                        drum_style="jazz", drum_intensity=0.60),
+                    energy=EnergyProfile(level=0.60, arc="descending"),
+                    extra_params={"num_phrases": 2, "phrase_length": 4},
+                    transition=TransitionSpec(type="fill", duration_beats=2.0)),
+
+        SectionSpec("outro",  "Outro",  "outro",  harmonic_plan=[],
+                    texture=TextureHints(bass_type="sustained",
+                                        instruments=["piano", "piano", "bass"]),
+                    energy=EnergyProfile(level=0.25, arc="descending"),
+                    extra_params={"num_phrases": 2, "phrase_length": 4}),
+    ]
+
+    analysis = MusicalAnalysis(
+        key="G", mode="major", tempo_bpm=110, time_signature=[4, 4],
+        sections=sections,
+    )
+
+    base = dict(_SYMBOLIC_BASE)
+    base.update(
+        num_voices=3,
+        instruments=["piano", "piano", "bass"],
+        step_leap_ratio=0.68,
+        counterpoint=0.45,
+    )
+
+    score = generate_from_analysis(analysis, base_params=base, seed=300)
+
+    total = sum(len(t.notes) for t in score.tracks)
+    for t in score.tracks:
+        drum_hits = sum(1 for n in t.notes if n.velocity > 0 and t.instrument == "drums")
+        print(f"  {t.instrument:<14}  {len(t.notes):>5} notes"
+              + (f"  ({drum_hits} hits)" if t.instrument == "drums" else ""))
+
+    fname = "transitions_g_major.mid"
+    with open(out_dir / fname, "wb") as f:
+        f.write(export.to_midi(score))
+    print(f"\n  -> {fname}  ({total} notes total)")
+
+
+def run_harmonic_development_demo(out_dir: pathlib.Path):
+    """
+    Show develop_harmony() and modulate_section() transforms.
+
+    A 5-section piece (D minor) has its harmonic complexity shaped into an arch
+    (simple -> rich -> simple) while harmonic rhythm builds throughout.
+    The bridge modulates to F major (relative major), demonstrated by the
+    different chord quality in that section.
+    """
+    print()
+    print("=" * 66)
+    print("  HARMONIC DEVELOPMENT DEMO")
+    print("  (D minor -> arch complexity, ascending rhythm, F major bridge)")
+    print("=" * 66)
+
+    section_ids = ["intro", "verse", "chorus", "bridge", "outro"]
+    sections = [
+        SectionSpec(sid, sid.capitalize(), "generic", harmonic_plan=[],
+                    texture=TextureHints(bass_type="walking" if sid not in ("intro", "outro") else "sustained"),
+                    energy=EnergyProfile(
+                        level={"intro": 0.3, "verse": 0.55, "chorus": 0.85,
+                               "bridge": 0.65, "outro": 0.25}[sid],
+                        arc="arch",
+                    ),
+                    extra_params={"num_phrases": 2, "phrase_length": 4})
+        for sid in section_ids
+    ]
+
+    analysis = MusicalAnalysis(
+        key="D", mode="minor", tempo_bpm=90, time_signature=[4, 4],
+        sections=sections,
+    )
+
+    # Apply harmonic development transforms
+    analysis = develop_harmony(analysis, complexity_arc="arch", rhythm_arc="ascending")
+    analysis = modulate_section(analysis, "bridge", key="F", mode="major")
+
+    print(f"\n  {'Section':<10} {'Key':<5} {'Mode':<15} {'Complexity':>12}  {'Rhythm':>8}")
+    print("  " + "-" * 56)
+    for sec in analysis.sections:
+        ep  = sec.extra_params
+        key = ep.get("key", analysis.key)
+        mod = ep.get("mode", analysis.mode)
+        cmp = ep.get("chord_complexity", "inherit")
+        rhy = ep.get("harmonic_rhythm",  "inherit")
+        print(f"  {sec.label:<10} {key:<5} {mod:<15} {str(cmp):>12}  {str(rhy):>8}")
+
+    base = dict(_SYMBOLIC_BASE)
+    base.update(num_voices=3, instruments=["piano", "piano", "bass"])
+
+    score = generate_from_analysis(analysis, base_params=base, seed=111)
+    total = sum(len(t.notes) for t in score.tracks)
+
+    fname = "harmonic_development_d_minor.mid"
+    with open(out_dir / fname, "wb") as f:
+        f.write(export.to_midi(score))
+    print(f"\n  -> {fname}  ({total} notes total)")
+
+
+def run_motif_development_demo(out_dir: pathlib.Path):
+    """
+    Demonstrate all five melodic_theme_dev modes.
+
+    Each variant generates the same C major piece with a motif, but shapes
+    how the motif evolves across its four phrases:
+
+        flat     -- classic cyclic: original / inverted / retrograde / retro-inv
+        build    -- starts with 2-note fragment, grows to full motif by phrase 4
+        fragment -- starts complete, shrinks to 2-note cell by phrase 4
+        arch     -- grows to full length at phrase 2-3, shrinks back
+        sequence -- shifts the starting pitch +2 semitones each phrase
+    """
+    print()
+    print("=" * 66)
+    print("  MOTIF DEVELOPMENT DEMO")
+    print("  (C major, fugue subject motif, five development modes)")
+    print("=" * 66)
+
+    print(f"\n  {'Mode':<12} {'Notes':>6}  Description")
+    print("  " + "-" * 52)
+
+    DESCRIPTIONS = {
+        "flat":     "cyclic original/inv/retro/retro-inv",
+        "build":    "2-note cell -> full subject by phrase 4",
+        "fragment": "full subject -> 2-note cell by phrase 4",
+        "arch":     "sparse -> full at phrase 2-3 -> sparse",
+        "sequence": "shift +2 semitones each phrase (rising)",
+    }
+
+    for dev in ["flat", "build", "fragment", "arch", "sequence"]:
+        d = Designer(domain=MusicDomain(), seed=42)
+        d.set("key",              "C")
+        d.set("mode",             "major")
+        d.set("tempo_bpm",        84)
+        d.set("time_signature",   [4, 4])
+        d.set("num_phrases",      4)
+        d.set("phrase_length",    4)
+        d.set("num_voices",       2)
+        d.set("instruments",      ["piano", "bass"])
+        d.set("melodic_theme",    "fugue_subject")
+        d.set("melodic_theme_dev", dev)
+        d.set("counterpoint",     0.50)
+        d.set("step_leap_ratio",  0.65)
+        d.set("circle_of_fifths", 0.70)
+        d.set("chord_complexity", 0.40)
+        d.set("rhythmic_density", 0.55)
+
+        score = d.generate()
+        total = sum(len(t.notes) for t in score.tracks)
+        fname = f"motif_dev_{dev}_c_major.mid"
+        with open(out_dir / fname, "wb") as f:
+            f.write(export.to_midi(score))
+        print(f"  {dev:<12} {total:>6}  {DESCRIPTIONS[dev]}  -> {fname}")
+
+
 # -- Entry point ---------------------------------------------------------------
 
 if __name__ == "__main__":
@@ -1345,6 +1666,10 @@ if __name__ == "__main__":
     run_mode_swap_demo(OUT_DIR)
     run_theme_thread_demo(OUT_DIR)
     run_energy_arc_demo(OUT_DIR)
+    run_drums_demo(OUT_DIR)
+    run_transitions_demo(OUT_DIR)
+    run_harmonic_development_demo(OUT_DIR)
+    run_motif_development_demo(OUT_DIR)
 
     print()
     print(f"All MIDI files written to: {OUT_DIR}")
