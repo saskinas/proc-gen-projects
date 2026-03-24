@@ -291,7 +291,17 @@ def folk(analysis):
 
 def ambient(analysis):
     """Slow, sparse, sustained — half tempo, very low density."""
-    a = apply_style_preset(analysis, "ambient")
+    a = deepcopy(analysis)
+    for sec in a.sections:
+        hints = dict(
+            bass_type="sustained", inner_voice_style="block_chords",
+            swing=0.0, use_ornaments=False,
+            rhythmic_density=0.15, counterpoint=0.10,
+        )
+        for k, v in hints.items():
+            if hasattr(sec.texture, k):
+                setattr(sec.texture, k, v)
+        sec.generation_mode = "arrange"
     a = tempo_scale(a, 0.50)
     return a
 
@@ -336,14 +346,30 @@ def lofi(analysis):
     Lo-fi chill: original melody + lazy swing bass, sparse accompaniment.
 
     Keeps the Kirby melody intact via arrange mode; replaces accompaniment
-    with a slow-swing feel at 85 % of original tempo.
+    with a slow-swing feel at 85 % of original tempo.  Dense melodies
+    (> 1.5 n/beat) get block chord pads instead of countermelody so the
+    lo-fi vibe doesn't compete with a busy Kirby melody.
     """
-    a = apply_style_preset(analysis, "jazz")   # sets arrange mode + jazz texture
-    # Dial back the jazz energy to a lazy groove
+    a = deepcopy(analysis)
     for sec in a.sections:
-        sec.texture.swing           = 0.40
-        sec.texture.rhythmic_density = 0.30
-        sec.texture.use_ornaments   = False
+        density = _lead_density(sec)
+        if density > 1.5:
+            # Dense melody: pad chords only, no countermelody
+            hints = dict(
+                bass_type="walking", inner_voice_style="block_chords",
+                swing=0.35, use_ornaments=False,
+                counterpoint=0.10, rhythmic_density=0.25,
+            )
+        else:
+            hints = dict(
+                bass_type="walking", inner_voice_style="countermelody",
+                swing=0.40, use_ornaments=False,
+                counterpoint=0.30, rhythmic_density=0.30,
+            )
+        for k, v in hints.items():
+            if hasattr(sec.texture, k):
+                setattr(sec.texture, k, v)
+        sec.generation_mode = "arrange"
     a = tempo_scale(a, 0.85)
     return a
 
@@ -353,11 +379,19 @@ def minimalist(analysis):
     Minimalist: original melody + bare sustained bass pulses, no drums.
 
     Strips accompaniment to a single sustained bass note per chord change.
+    Very sparse (density 0.08) so even dense Kirby melodies stand alone.
     """
-    a = apply_style_preset(analysis, "ambient")  # sets arrange mode + ambient texture
+    a = deepcopy(analysis)
     for sec in a.sections:
-        sec.texture.rhythmic_density = 0.08
-        sec.texture.counterpoint     = 0.0
+        hints = dict(
+            bass_type="sustained", inner_voice_style="block_chords",
+            swing=0.0, use_ornaments=False,
+            rhythmic_density=0.08, counterpoint=0.0,
+        )
+        for k, v in hints.items():
+            if hasattr(sec.texture, k):
+                setattr(sec.texture, k, v)
+        sec.generation_mode = "arrange"
     a = tempo_scale(a, 0.75)
     return a
 
@@ -391,12 +425,13 @@ def relative_minor(analysis):
 
 def epic(analysis):
     """
-    High-energy reworking.
+    High-energy orchestral treatment — preserves Kirby melody.
 
     - All sections pushed to energy level 0.85+ with ascending arc.
-    - Main motif sequenced upward in thirds (+4 semitones × 3 steps) to
-      build climactic development material.
-    - Harmonic complexity arcs upward across the form.
+    - Dense rock/orchestral accompaniment: driving bass, stacked chords,
+      full drums.  Section density adapts so the accompaniment doesn't
+      overwhelm a melody that's already dense.
+    - Tempo boosted 10 % for extra drive.
     """
     a = deepcopy(analysis)
 
@@ -408,14 +443,30 @@ def epic(analysis):
         )
         sec.energy.level = min(sec.energy.level, 0.97)
         sec.energy.arc   = "ascending"
-        sec.generation_mode = "generate"
 
-    # Develop main motif as ascending sequence
-    if a.motifs:
-        first_motif_id = next(iter(a.motifs))
-        a = sequence_motif(a, first_motif_id, n_steps=3, step_semitones=4)
+        density = _lead_density(sec)
+        if density > 2.0:
+            # Already dense melody — support with bass + sparse chords only
+            hints = dict(
+                bass_type="rock", inner_voice_style="block_chords",
+                swing=0.0, use_ornaments=False,
+                counterpoint=0.05, rhythmic_density=0.50,
+                rhythmic_regularity=0.85,
+            )
+        else:
+            # Sparse/moderate melody — full epic treatment
+            hints = dict(
+                bass_type="rock", inner_voice_style="block_chords",
+                swing=0.0, use_ornaments=False,
+                counterpoint=0.15, rhythmic_density=0.70,
+                rhythmic_regularity=0.85,
+            )
+        for k, v in hints.items():
+            if hasattr(sec.texture, k):
+                setattr(sec.texture, k, v)
+        sec.generation_mode = "arrange"
 
-    a = develop_harmony(a, complexity_arc="ascending", rhythm_arc="ascending")
+    a = tempo_scale(a, 1.10)
     return a
 
 
