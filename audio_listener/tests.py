@@ -381,10 +381,19 @@ class TestPhraseSegmenter(unittest.TestCase):
         self.assertEqual(phrases[0].bar_count, 4)
 
     def test_8_bar_phrases_for_long_piece(self):
+        # With multiplier-6 logic, phrase_bars=8 requires total_bars >= 48.
+        # Use 64 bars so the condition 64 >= 8*6=48 triggers phrase_bars=8.
+        from audio_listener.phrase_segmenter import segment_phrases
+        notes   = self._notes(64, bpb=4)
+        phrases = segment_phrases(notes, 4)
+        self.assertEqual(phrases[0].bar_count, 8)
+
+    def test_4_bar_phrases_for_medium_piece(self):
+        # 32-bar piece: 32 < 48 (threshold for phrase_bars=8), so phrase_bars=4.
         from audio_listener.phrase_segmenter import segment_phrases
         notes   = self._notes(32, bpb=4)
         phrases = segment_phrases(notes, 4)
-        self.assertEqual(phrases[0].bar_count, 8)
+        self.assertEqual(phrases[0].bar_count, 4)
 
     def test_detect_sections_returns_list(self):
         from audio_listener.phrase_segmenter import segment_phrases, detect_sections
