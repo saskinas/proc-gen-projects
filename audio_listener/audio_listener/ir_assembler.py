@@ -361,6 +361,14 @@ def assemble(
         for inner_idx, ch in enumerate(inner_channels):
             source_ch_map[f"inner_{inner_idx + 1}"] = ch
 
+        # Build source program map: voice name → GM program number (0-indexed)
+        # Used by replay_section to restore the original MIDI instrument colour.
+        progs = getattr(data, "program_numbers", {})
+        source_prog_map: dict[str, int] = {}
+        for vname, ch in source_ch_map.items():
+            if ch in progs:
+                source_prog_map[vname] = progs[ch]
+
         section_specs.append(SectionSpec(
             id=f"{role}_{i}",
             label=label,
@@ -371,9 +379,10 @@ def assemble(
             energy=energy,
             repeat_of=repeat_of_id,
             extra_params={
-                "num_phrases":   max(2, n_phrases),
-                "phrase_length": max(2, phrase_bars),
-                "source_channels": source_ch_map,
+                "num_phrases":    max(2, n_phrases),
+                "phrase_length":  max(2, phrase_bars),
+                "_source_channels": source_ch_map,   # prefixed _ → skipped by generate_section
+                "_source_programs": source_prog_map,  # prefixed _ → skipped by generate_section
             },
             voice_sequences=voice_seqs,
         ))

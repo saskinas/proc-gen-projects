@@ -43,6 +43,8 @@ def label_sections(
 
     densities = [_section_density(s, melody) for s in sections]
     max_dens  = max(densities) if densities else 1.0
+    if max_dens < 1e-9:
+        max_dens = 1.0   # avoid division-by-zero / degenerate threshold when melody is silent
 
     # Count how many times each section_idx is referenced as is_repeat_of
     repeat_counts: dict[int | None, int] = {}
@@ -67,16 +69,32 @@ def label_sections(
         elif s.is_repeat_of == chorus_original:
             roles[i] = "chorus"
 
-    # Intro: first section, not chorus, short, early in piece
-    if roles[0] != "chorus":
-        n_phrases = sections[0].end_phrase - sections[0].start_phrase
-        if n_phrases <= 2 and sections[0].end_beat <= total_beats * 0.25:
-            roles[0] = "intro"
+    # Determine if this is a highly repetitive piece (most sections share
+    # the same repeat fingerprint, as happens with looping game music).
+    chorus_repeat_count = sum(
+        1 for s in sections
+        if s.is_repeat_of == chorus_original or s.section_idx == chorus_original
+    ) if chorus_original is not None else 0
+    is_highly_repetitive = chorus_repeat_count >= n * 0.6
 
-    # Outro: last section, not chorus, density significantly drops
-    if roles[n-1] not in ("chorus",) and n > 1:
-        if densities[n-1] <= max_dens * 0.6:
+    if is_highly_repetitive:
+        # Every section is a "chorus repeat" — give the first pass an intro
+        # label and the last pass an outro label when density drops, so the
+        # generator can provide a distinct opening and closing.
+        roles[0] = "intro"
+        if n > 1 and densities[n-1] <= max_dens * 0.75:
             roles[n-1] = "outro"
+    else:
+        # Standard heuristics for pieces with genuine section variety.
+        # Intro: first section, not chorus, short, early in piece.
+        if roles[0] != "chorus":
+            n_phrases_0 = sections[0].end_phrase - sections[0].start_phrase
+            if n_phrases_0 <= 2 and sections[0].end_beat <= total_beats * 0.25:
+                roles[0] = "intro"
+        # Outro: last section, not chorus, density significantly drops.
+        if roles[n-1] not in ("chorus",) and n > 1:
+            if densities[n-1] <= max_dens * 0.6:
+                roles[n-1] = "outro"
 
     # Bridge: unique section whose density is a clear outlier above the average.
     # Require it to sit in the middle 15–90 % of the piece (not intro/outro territory)
@@ -105,6 +123,26 @@ def label_sections(
                 roles[i] = parent_role
             else:
                 roles[i] = "verse"
+
+    # Structural diversity: when most sections share the same role (highly
+    # repetitive music like game loops where every section is a "chorus repeat"),
+    # cap "chorus" to at most 40 % of the piece and reassign the rest as "verse".
+    # This gives the generator meaningful structural variety to work with.
+    chorus_idxs = [i for i, r in enumerate(roles) if r == "chorus"]
+    max_chorus  = max(1, n * 2 // 5)   # 40 % cap
+    if len(chorus_idxs) > max_chorus:
+        # Pick max_chorus evenly-spaced entries from chorus_idxs to keep as chorus.
+        n_ch = len(chorus_idxs)
+        keep = set()
+        for k in range(max_chorus):
+            if max_chorus == 1:
+                pos = n_ch // 2          # keep the middle occurrence
+            else:
+                pos = round(k * (n_ch - 1) / (max_chorus - 1))
+            keep.add(chorus_idxs[pos])
+        for ci in chorus_idxs:
+            if ci not in keep:
+                roles[ci] = "verse"
 
     # Assign letter labels A, B, C... per unique fingerprint group
     seen_orig: dict[int, str] = {}

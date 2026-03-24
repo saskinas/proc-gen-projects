@@ -337,9 +337,31 @@ def replay_section(
     instrs        = base_params.get("instruments") or ["square"]
     default_instr = instrs[0] if instrs else "square"
 
+    # Look up original GM instruments from the analysis if available.
+    # These are stored by ir_assembler from the source MIDI's program-change events.
+    # GM programme number → export.py instrument name (covers common families).
+    def _gm_to_instr(prog: int) -> str:
+        """Map GM program number (0-127) to the nearest export.py instrument name."""
+        if   prog <  8:  return "piano"
+        elif prog < 16:  return "piano"         # chromatic perc → piano
+        elif prog < 24:  return "organ"
+        elif prog < 32:  return "guitar"
+        elif prog < 40:  return "bass_guitar"
+        elif prog < 56:  return "strings"
+        elif prog < 64:  return "trumpet"
+        elif prog < 80:  return "flute"
+        elif prog < 96:  return "square"        # synth lead / NES-style
+        elif prog < 112: return "strings"       # synth pad
+        else:            return "piano"
+
+    # Per-voice instrument: prefer original GM program if present, otherwise fall back.
+    src_progs = section.extra_params.get("_source_programs", {})
+
     def _instr_for(voice: str) -> str:
         if voice == "drums":
             return "drums"
+        if voice in src_progs:
+            return _gm_to_instr(src_progs[voice])
         if voice == "bass":
             # Triangle channel carries the bass in NES music — use triangle
             # instrument so the bass sounds lower/softer than melody voices.

@@ -80,10 +80,12 @@ def segment_phrases(
     total_beats = max(n.start_beat + n.duration_beats for n in melody_notes)
     bar_beats   = float(beats_per_bar)
 
-    # Detect phrase_bars. For longer pieces prefer 8-bar phrases (more musical);
-    # for shorter pieces fall back to 4, then 2.
+    # Detect phrase_bars. For longer pieces prefer larger phrase sizes to avoid
+    # over-segmentation. Tries 16 first (very long pieces), then 8, 4, 2.
+    # A 128-bar piece gets 16-bar phrases (8 sections) rather than 8-bar
+    # phrases (16 sections); shorter pieces scale down accordingly.
     total_bars = total_beats / bar_beats
-    for candidate in [8, 16, 4, 2]:
+    for candidate in [16, 8, 4, 2]:
         if total_bars >= candidate * 2:
             phrase_bars = candidate
             break

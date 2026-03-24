@@ -514,11 +514,16 @@ def mirror_world(analysis):
     Works on soprano, alto, or inner voices — whichever carries the melody.
     """
     a = deepcopy(analysis)
-    for sec in a.sections:
-        if not sec.voice_sequences:
-            continue
-        lead = _lead_voice_name(sec)
-        a = invert_melody(a, sec.id, lead)
+    # Collect (section_id, lead_voice) pairs before mutating — invert_melody
+    # returns a fresh deepcopy each time, so iterating over a.sections directly
+    # would leave sec pointing at stale objects after the first reassignment.
+    targets = [
+        (sec.id, _lead_voice_name(sec))
+        for sec in a.sections
+        if sec.voice_sequences
+    ]
+    for sec_id, lead in targets:
+        a = invert_melody(a, sec_id, lead)
     return a
 
 
@@ -531,11 +536,13 @@ def retrograde(analysis):
     Works on soprano, alto, or inner voices — whichever carries the melody.
     """
     a = deepcopy(analysis)
-    for sec in a.sections:
-        if not sec.voice_sequences:
-            continue
-        lead = _lead_voice_name(sec)
-        a = retrograde_melody(a, sec.id, lead)
+    targets = [
+        (sec.id, _lead_voice_name(sec))
+        for sec in a.sections
+        if sec.voice_sequences
+    ]
+    for sec_id, lead in targets:
+        a = retrograde_melody(a, sec_id, lead)
     return a
 
 
@@ -547,14 +554,16 @@ def kaleidoscope(analysis):
     Works on soprano, alto, or inner voices — whichever carries the melody.
     """
     a = deepcopy(analysis)
-    for i, sec in enumerate(a.sections):
-        if not sec.voice_sequences:
-            continue
-        lead = _lead_voice_name(sec)
+    targets = [
+        (i, sec.id, _lead_voice_name(sec))
+        for i, sec in enumerate(a.sections)
+        if sec.voice_sequences
+    ]
+    for i, sec_id, lead in targets:
         if i % 2 == 0:
-            a = invert_melody(a, sec.id, lead)
+            a = invert_melody(a, sec_id, lead)
         else:
-            a = retrograde_melody(a, sec.id, lead)
+            a = retrograde_melody(a, sec_id, lead)
     return a
 
 
