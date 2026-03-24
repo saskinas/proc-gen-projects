@@ -20,6 +20,25 @@ def detect_tempo(data: MidiData) -> int:
     return max(40, min(240, meta_bpm))
 
 
+def detect_tempo_map(data: MidiData) -> list[tuple[float, int]]:
+    """
+    Return all tempo changes as (beat_position, bpm) pairs.
+
+    Empty list if there's only one tempo (no mid-piece changes).
+    When there are multiple tempo changes, includes the initial tempo at beat 0.
+    """
+    if len(data.tempo_changes) <= 1:
+        return []
+
+    result = []
+    for tick, uspb in data.tempo_changes:
+        beat = data.tick_to_beat(tick)
+        bpm = max(40, min(240, int(60_000_000 / uspb)))
+        result.append((beat, bpm))
+
+    return result
+
+
 def detect_time_signature(data: MidiData) -> list[int]:
     """
     Return [numerator, denominator] of the prevailing time signature.

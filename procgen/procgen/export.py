@@ -103,17 +103,36 @@ def to_midi(score: Any, ticks_per_beat: int = 480) -> bytes:
     tracks_data = []
 
     # --- Tempo track (track 0) ---
-    tempo_track = bytearray()
-    # Set tempo
-    tempo_track += _var_len(0)          # delta time 0
-    tempo_track += b"\xFF\x51\x03"      # Meta: set tempo
-    tempo_track += _midi_tempo(score.tempo_bpm)
-    # Time signature
+    # Build list of (abs_tick, event_bytes) for all tempo/time-sig events
+    tempo_events = []
+
+    # Initial tempo at tick 0
+    tempo_events.append((0, b"\xFF\x51\x03" + _midi_tempo(score.tempo_bpm)))
+
+    # Additional tempo changes from tempo_map
+    tempo_map = getattr(score, 'tempo_map', None) or []
+    for beat_pos, bpm in tempo_map:
+        if beat_pos > 0:
+            tick = int(beat_pos * ticks_per_beat)
+            tempo_events.append((tick, b"\xFF\x51\x03" + _midi_tempo(bpm)))
+
+    # Time signature at tick 0
     num, den = score.time_signature
     log2_den = int(math.log2(den))
-    tempo_track += _var_len(0)
-    tempo_track += b"\xFF\x58\x04"      # Meta: time sig
-    tempo_track += bytes([num, log2_den, 24, 8])
+    tempo_events.append((0, b"\xFF\x58\x04" + bytes([num, log2_den, 24, 8])))
+
+    # Sort by tick (time sig before tempo at same tick)
+    tempo_events.sort(key=lambda e: (e[0], 0 if e[1][1:2] == b"\x58" else 1))
+
+    # Write with delta times
+    tempo_track = bytearray()
+    prev_tick = 0
+    for tick, event_bytes in tempo_events:
+        delta = tick - prev_tick
+        tempo_track += _var_len(delta)
+        tempo_track += event_bytes
+        prev_tick = tick
+
     # End of track
     tempo_track += _var_len(0) + b"\xFF\x2F\x00"
     tracks_data.append(bytes(tempo_track))

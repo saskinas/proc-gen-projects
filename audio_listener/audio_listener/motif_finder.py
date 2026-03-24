@@ -138,19 +138,31 @@ def find_motifs(
             ret:     "retrograde",
             ret_inv: "retrograde_inversion",
         }
+        # Reference pitch for transposition: first original occurrence
+        ref_pitch = None
+        orig_entries = pattern_map.get(pattern, [])
+        if orig_entries:
+            ref_pitch = orig_entries[0][1][0].pitch  # first occurrence, first note
+
         out: list[dict] = []
         for vkey, label in variants.items():
             for ph_idx, sub, durs in pattern_map.get(vkey, []):
                 aug = _is_aug_dim(canon_durs, durs)
-                suffix = ""
+                dur_factor = 1.0
                 if aug == 2.0:
-                    suffix = "(aug)"
+                    dur_factor = 2.0
                 elif aug == 0.5:
-                    suffix = "(dim)"
+                    dur_factor = 0.5
+
+                pitch = sub[0].pitch if sub else 0
+                transposition = (pitch - ref_pitch) if ref_pitch is not None else 0
+
                 out.append({
-                    "phrase_idx":  ph_idx,
-                    "beat_offset": sub[0].start_beat if sub else 0.0,
-                    "transform":   label + suffix,
+                    "phrase_idx":      ph_idx,
+                    "beat_offset":     sub[0].start_beat if sub else 0.0,
+                    "transform":       label,
+                    "transposition":   transposition,
+                    "duration_factor": dur_factor,
                 })
         return out
 
@@ -205,9 +217,11 @@ def find_motifs(
                         "n_reps":        len(entries),
                         "occurrences": [
                             {
-                                "phrase_idx":  ph_idx,
-                                "beat_offset": e[0],
-                                "transform":   f"seq(+{steps[0]})",
+                                "phrase_idx":      ph_idx,
+                                "beat_offset":     e[0],
+                                "transform":       f"seq(+{steps[0]})",
+                                "transposition":   0,
+                                "duration_factor": 1.0,
                             }
                             for e in entries
                         ],
@@ -316,9 +330,11 @@ def find_motifs(
             contour      = _contour(list(pat)),
             occurrences  = [
                 {
-                    "phrase_idx":  o[0],
-                    "beat_offset": o[1][-1].start_beat if o[1] else 0.0,
-                    "transform":   "cadential",
+                    "phrase_idx":      o[0],
+                    "beat_offset":     o[1][-1].start_beat if o[1] else 0.0,
+                    "transform":       "cadential",
+                    "transposition":   0,
+                    "duration_factor": 1.0,
                 }
                 for o in occ_list
             ],

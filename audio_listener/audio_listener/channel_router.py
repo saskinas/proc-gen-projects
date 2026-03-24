@@ -1,13 +1,16 @@
 """
-audio_listener.channel_router — NES MIDI channel role assignment.
+audio_listener.channel_router — MIDI channel role assignment.
 
 Maps MIDI channels to semantic roles: melody, countermelody, bass, drums.
+Supports both global (whole-file) and per-section assignment.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from audio_listener.midi_parser import MidiData, RawNote
+from audio_listener.pitch_tracker import TrackedNote
+from audio_listener.phrase_segmenter import SectionBoundary
 
 
 @dataclass
@@ -172,3 +175,153 @@ def assign_channels(data: MidiData) -> ChannelAssignment:
         ignored=ignored,
         inner=inner_voices,
     )
+
+
+# ── Per-section channel assignment ────────────────────────────────────────────
+
+@dataclass
+class SectionChannelAssignment:
+    """Per-section channel role assignment."""
+    section_idx:    int
+    start_beat:     float
+    end_beat:       float
+    melody:         int | None
+    countermelody:  int | None
+    bass:           int | None
+    drums:          int | None
+    inner:          list[int] = field(default_factory=list)
+
+
+def _score_tracked_notes(notes: list[TrackedNote]) -> float:
+    """
+    Score a list of TrackedNotes for melody-ness.
+
+    Uses the same composite metric as assign_channels():
+      note_count * mean_duration * pitch_norm * melodic_variety
+    """
+    if not notes:
+        return 0.0
+
+    count = len(notes)
+
+    # Mean duration
+    mean_dur = sum(n.duration_beats for n in notes) / count
+
+    # Pitch normalisation (same 36-96 range as assign_channels)
+    mean_pitch = sum(n.pitch for n in notes) / count
+    pitch_norm = max(0.0, min(1.0, (mean_pitch - 36) / 60.0))
+
+    # Melodic variety (penalise strict alternating arpeggios)
+    sorted_notes = sorted(notes, key=lambda n: n.start_beat)
+    pitches = [n.pitch for n in sorted_notes]
+    if len(pitches) < 4:
+        variety = 1.0
+    else:
+        intervals = [pitches[i + 1] - pitches[i] for i in range(len(pitches) - 1)]
+        reversals = sum(
+            1 for i in range(len(intervals) - 1)
+            if intervals[i] == -intervals[i + 1]
+        )
+        arp_fraction = reversals / max(1, len(intervals) - 1)
+        variety = 1.0 - arp_fraction * 0.8
+
+    return count * mean_dur * (0.2 + 0.8 * pitch_norm) * variety
+
+
+def assign_channels_per_section(
+    channel_notes: dict[int, list[TrackedNote]],
+    global_assignment: ChannelAssignment,
+    sections: list[SectionBoundary],
+) -> list[SectionChannelAssignment]:
+    """
+    Re-score channel roles for each section independently.
+
+    Parameters
+    ----------
+    channel_notes
+        channel number → beat-quantised TrackedNote list (all non-drum channels).
+    global_assignment
+        The whole-file ChannelAssignment (used for drums, which stay fixed).
+    sections
+        Section boundaries from phrase segmentation.
+
+    Returns
+    -------
+    list[SectionChannelAssignment]
+        One entry per section, in order.
+    """
+    drums_ch = global_assignment.drums
+    result: list[SectionChannelAssignment] = []
+
+    for sec in sections:
+        s, e = sec.start_beat, sec.end_beat
+
+        # Filter each channel's notes to this section's time window
+        windowed: dict[int, list[TrackedNote]] = {}
+        for ch, notes in channel_notes.items():
+            w = [n for n in notes if s <= n.start_beat < e]
+            if len(w) >= 2:          # require at least 2 notes in window
+                windowed[ch] = w
+
+        if not windowed:
+            # No pitched notes in this section — fall back to global
+            result.append(SectionChannelAssignment(
+                section_idx=sec.section_idx,
+                start_beat=s, end_beat=e,
+                melody=global_assignment.melody,
+                countermelody=global_assignment.countermelody,
+                bass=global_assignment.bass,
+                drums=drums_ch,
+                inner=list(global_assignment.inner),
+            ))
+            continue
+
+        # Score each channel for this section
+        scores: dict[int, float] = {
+            ch: _score_tracked_notes(notes) for ch, notes in windowed.items()
+        }
+        mean_pitch: dict[int, float] = {
+            ch: sum(n.pitch for n in notes) / len(notes)
+            for ch, notes in windowed.items()
+        }
+
+        # Sort ascending by score
+        ranked = sorted(scores.keys(), key=lambda ch: scores[ch])
+
+        # Assign bass = lowest mean pitch among active channels
+        bass_candidates = sorted(windowed.keys(), key=lambda ch: mean_pitch[ch])
+        bass = bass_candidates[0]
+        ranked = [ch for ch in ranked if ch != bass]
+
+        # Melody = highest score among remaining
+        melody = ranked.pop() if ranked else None
+
+        # Counter = next highest score
+        counter = ranked.pop() if ranked else None
+
+        # Sanity: melody should have higher mean pitch than bass
+        if melody is not None and mean_pitch.get(melody, 0) < mean_pitch.get(bass, 0):
+            melody, bass = bass, melody
+
+        # Sanity: melody should have higher mean pitch than counter
+        if melody is not None and counter is not None:
+            if mean_pitch.get(counter, 0) > mean_pitch.get(melody, 0):
+                melody, counter = counter, melody
+
+        # Sanity: counter should have higher mean pitch than bass
+        if counter is not None and mean_pitch.get(counter, 0) < mean_pitch.get(bass, 0):
+            counter, bass = bass, counter
+
+        inner = list(ranked)
+
+        result.append(SectionChannelAssignment(
+            section_idx=sec.section_idx,
+            start_beat=s, end_beat=e,
+            melody=melody,
+            countermelody=counter,
+            bass=bass,
+            drums=drums_ch,
+            inner=inner,
+        ))
+
+    return result

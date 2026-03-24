@@ -38,7 +38,7 @@ Why this encoding is transform-safe
 from __future__ import annotations
 
 from audio_listener.midi_parser      import MidiData
-from audio_listener.channel_router   import ChannelAssignment
+from audio_listener.channel_router   import ChannelAssignment, SectionChannelAssignment
 from audio_listener.pitch_tracker    import TrackedNote, extract_notes, quantise_beats
 from audio_listener.phrase_segmenter import PhraseSegment, SectionBoundary
 from audio_listener.chord_builder    import build_harmonic_plan, detect_harmonic_rhythm
@@ -269,6 +269,8 @@ def assemble(
     sections:       list[SectionBoundary],
     section_labels: list[tuple[str, str]],
     motifs:         list,
+    section_assignments: list[SectionChannelAssignment] | None = None,
+    tempo_map: list[tuple[float, int]] | None = None,
 ) -> object:
     """
     Build and return a MusicalAnalysis from all pre-computed results.
@@ -288,11 +290,22 @@ def assemble(
     scale_ivs     = SCALE_INTERVALS.get(mode, SCALE_INTERVALS["major"])
     harm_rhythm   = detect_harmonic_rhythm(melody, beats_per_bar, bass=bass, counter=counter)
 
-    # Raw per-channel notes for voice_sequences (no supplementation)
-    clean_sop   = _get_clean_channel_notes(data, assignment.melody)
-    clean_alto  = _get_clean_channel_notes(data, assignment.countermelody)
-    clean_bass  = _get_clean_channel_notes(data, assignment.bass)
-    clean_drums = (_get_clean_channel_notes(data, assignment.drums)
+    # Raw per-channel notes for voice_sequences (no supplementation).
+    # When per-section assignments are available, extraction is deferred to the
+    # section loop so each section can use its own channel mapping.  We cache
+    # per-channel results to avoid redundant extraction.
+    _clean_cache: dict[int | None, list[TrackedNote]] = {}
+
+    def _cached_clean(ch: int | None) -> list[TrackedNote]:
+        if ch not in _clean_cache:
+            _clean_cache[ch] = _get_clean_channel_notes(data, ch)
+        return _clean_cache[ch]
+
+    # Pre-extract global notes (used when section_assignments is None)
+    clean_sop   = _cached_clean(assignment.melody)
+    clean_alto  = _cached_clean(assignment.countermelody)
+    clean_bass  = _cached_clean(assignment.bass)
+    clean_drums = (_cached_clean(assignment.drums)
                    if assignment.drums is not None else [])
 
     # Inner voices: sort by mean pitch descending (highest-register first)
@@ -300,12 +313,12 @@ def assemble(
         raw = data.notes_for_channel(ch)
         return sum(n.pitch for n in raw) / len(raw) if raw else 0.0
 
-    inner_channels = sorted(
+    global_inner_channels = sorted(
         assignment.inner or [],
         key=_ch_mean_pitch,
         reverse=True,   # highest pitch first → inner_1 is the highest inner voice
     )
-    clean_inner = [_get_clean_channel_notes(data, ch) for ch in inner_channels]
+    clean_inner = [_cached_clean(ch) for ch in global_inner_channels]
 
     # ── Phrase map helper ──────────────────────────────────────────────────────
     def _phrase_map_for_section(sec: SectionBoundary) -> list[tuple[float, float, int]]:
@@ -354,6 +367,21 @@ def assemble(
             elif len(motifs) > 1:
                 motif_id = motifs[1].id
 
+        # Map motif occurrences to this section's phrase range
+        motif_occs = []
+        if motif_id:
+            motif_def = next((m for m in motifs if m.id == motif_id), None)
+            if motif_def:
+                for occ in motif_def.occurrences:
+                    ph = occ.get("phrase_idx", -1)
+                    if sec.start_phrase <= ph < sec.end_phrase:
+                        motif_occs.append({
+                            "phrase_local_idx": ph - sec.start_phrase,
+                            "transform":       occ.get("transform", "original"),
+                            "transposition":   occ.get("transposition", 0),
+                            "duration_factor": occ.get("duration_factor", 1.0),
+                        })
+
         # repeat_of
         repeat_of_id = None
         if sec.is_repeat_of is not None and sec.is_repeat_of < len(section_labels):
@@ -367,8 +395,39 @@ def assemble(
         s_beat, e_beat = sec.start_beat, sec.end_beat
         voice_seqs: dict = {}
 
-        if clean_sop:
-            seq = _extract_pitched_sequence(clean_sop, s_beat, e_beat, tonic_pc, scale_ivs)
+        # Determine which channels provide each role for this section.
+        # When per-section assignments are available, override the global mapping.
+        if section_assignments is not None and i < len(section_assignments):
+            sec_asgn = section_assignments[i]
+            sec_sop   = _cached_clean(sec_asgn.melody)
+            sec_alto  = _cached_clean(sec_asgn.countermelody)
+            sec_bass  = _cached_clean(sec_asgn.bass)
+            sec_drums = (_cached_clean(sec_asgn.drums)
+                         if sec_asgn.drums is not None else [])
+            sec_inner_channels = sorted(
+                sec_asgn.inner or [],
+                key=_ch_mean_pitch,
+                reverse=True,
+            )
+            sec_inner = [_cached_clean(ch) for ch in sec_inner_channels]
+            sec_melody_ch   = sec_asgn.melody
+            sec_counter_ch  = sec_asgn.countermelody
+            sec_bass_ch     = sec_asgn.bass
+            sec_drums_ch    = sec_asgn.drums
+        else:
+            sec_sop   = clean_sop
+            sec_alto  = clean_alto
+            sec_bass  = clean_bass
+            sec_drums = clean_drums
+            sec_inner_channels = global_inner_channels
+            sec_inner = clean_inner
+            sec_melody_ch   = assignment.melody
+            sec_counter_ch  = assignment.countermelody
+            sec_bass_ch     = assignment.bass
+            sec_drums_ch    = assignment.drums
+
+        if sec_sop:
+            seq = _extract_pitched_sequence(sec_sop, s_beat, e_beat, tonic_pc, scale_ivs)
             if seq:
                 voice_seqs["soprano"] = seq
 
@@ -376,30 +435,30 @@ def assemble(
         # every chord tone is captured.  Layer 0 keeps the canonical voice name; extra
         # layers get a suffix (_layer_2, _layer_3, …) and are replayed as additional
         # tracks.  Monophonic channels produce a single layer with no suffix.
-        if clean_alto:
-            alto_layers = _split_into_layers(clean_alto, lowest_first=False)
+        if sec_alto:
+            alto_layers = _split_into_layers(sec_alto, lowest_first=False)
             for li, layer_notes in enumerate(alto_layers):
                 seq = _extract_pitched_sequence(layer_notes, s_beat, e_beat, tonic_pc, scale_ivs)
                 if seq:
                     vname = "alto" if li == 0 else f"alto_layer_{li + 1}"
                     voice_seqs[vname] = seq
 
-        if clean_bass:
+        if sec_bass:
             # lowest_first=True: primary bass layer carries the lowest pitch (root/bass tone)
-            bass_layers = _split_into_layers(clean_bass, lowest_first=True)
+            bass_layers = _split_into_layers(sec_bass, lowest_first=True)
             for li, layer_notes in enumerate(bass_layers):
                 seq = _extract_pitched_sequence(layer_notes, s_beat, e_beat, tonic_pc, scale_ivs)
                 if seq:
                     vname = "bass" if li == 0 else f"bass_layer_{li + 1}"
                     voice_seqs[vname] = seq
 
-        if clean_drums:
-            seq = _extract_drum_sequence(clean_drums, s_beat, e_beat)
+        if sec_drums:
+            seq = _extract_drum_sequence(sec_drums, s_beat, e_beat)
             if seq:
                 voice_seqs["drums"] = seq
 
         # Capture all inner channels, sorted by mean pitch descending (highest first)
-        for inner_idx, inner_notes in enumerate(clean_inner):
+        for inner_idx, inner_notes in enumerate(sec_inner):
             if not inner_notes:
                 continue
             inner_layers = _split_into_layers(inner_notes, lowest_first=False)
@@ -414,21 +473,21 @@ def assemble(
         # Extra polyphonic layers share the same MIDI channel as the primary voice
         # so replay_section can look up their instrument program correctly.
         source_ch_map: dict[str, int] = {}
-        if assignment.melody is not None:
-            source_ch_map["soprano"] = assignment.melody
-        if assignment.countermelody is not None:
-            source_ch_map["alto"] = assignment.countermelody
+        if sec_melody_ch is not None:
+            source_ch_map["soprano"] = sec_melody_ch
+        if sec_counter_ch is not None:
+            source_ch_map["alto"] = sec_counter_ch
             for vname in voice_seqs:
                 if vname.startswith("alto_layer_"):
-                    source_ch_map[vname] = assignment.countermelody
-        if assignment.bass is not None:
-            source_ch_map["bass"] = assignment.bass
+                    source_ch_map[vname] = sec_counter_ch
+        if sec_bass_ch is not None:
+            source_ch_map["bass"] = sec_bass_ch
             for vname in voice_seqs:
                 if vname.startswith("bass_layer_"):
-                    source_ch_map[vname] = assignment.bass
-        if assignment.drums is not None:
-            source_ch_map["drums"] = assignment.drums
-        for inner_idx, ch in enumerate(inner_channels):
+                    source_ch_map[vname] = sec_bass_ch
+        if sec_drums_ch is not None:
+            source_ch_map["drums"] = sec_drums_ch
+        for inner_idx, ch in enumerate(sec_inner_channels):
             base = f"inner_{inner_idx + 1}"
             source_ch_map[base] = ch
             for vname in voice_seqs:
@@ -453,10 +512,11 @@ def assemble(
             energy=energy,
             repeat_of=repeat_of_id,
             extra_params={
-                "num_phrases":    max(2, n_phrases),
-                "phrase_length":  max(2, phrase_bars),
-                "_source_channels": source_ch_map,   # prefixed _ → skipped by generate_section
-                "_source_programs": source_prog_map,  # prefixed _ → skipped by generate_section
+                "num_phrases":         max(2, n_phrases),
+                "phrase_length":       max(2, phrase_bars),
+                "_source_channels":    source_ch_map,    # prefixed _ → skipped by generate_section
+                "_source_programs":    source_prog_map,   # prefixed _ → skipped by generate_section
+                "_motif_occurrences":  motif_occs,        # prefixed _ → skipped by generate_section
             },
             voice_sequences=voice_seqs,
         ))
@@ -471,4 +531,5 @@ def assemble(
         sections=section_specs,
         motifs=motif_dict,
         form_hint=_form_hint(),
+        tempo_map=tempo_map or [],
     )

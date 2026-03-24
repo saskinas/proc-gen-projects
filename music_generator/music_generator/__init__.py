@@ -200,6 +200,9 @@ class MusicScore:
     time_signature: tuple[int, int]
     tracks: list[Track]
     metadata: dict = field(default_factory=dict)
+    # [(beat_position, bpm), ...] — mid-piece tempo changes for MIDI export.
+    # Empty = constant tempo at tempo_bpm.
+    tempo_map: list[tuple[float, int]] = field(default_factory=list)
 
     def describe(self) -> str:
         intent = self.metadata.get("intent", {})

@@ -75,6 +75,21 @@ def _adapt_base(analysis, overrides: dict | None) -> dict:
         ]
         base["drum_intensity"] = sum(intensities) / len(intensities) if intensities else 0.5
 
+    # Detect instrument style from the source MIDI's program-change events.
+    # If any voice uses an acoustic-range GM program (0-63: piano, guitar,
+    # strings, brass, woodwinds…), the source is general MIDI rather than
+    # NES/chiptune.  Use piano as the default instrument for generated voices
+    # so the accompaniment blends with the replayed melody instead of clashing
+    # with a synthetic square-wave sound.
+    # NES-converted MIDIs either have no program changes (empty dict) or use
+    # programs ≥ 80 (synth lead family), so they keep the "square" default.
+    all_src_progs: set[int] = set()
+    for sec in analysis.sections:
+        progs = sec.extra_params.get("_source_programs", {})
+        all_src_progs.update(progs.values())
+    if all_src_progs and any(p < 64 for p in all_src_progs):
+        base["instruments"] = ["piano"]
+
     if overrides:
         base.update(overrides)
     return base

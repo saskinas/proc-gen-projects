@@ -402,6 +402,10 @@ class MusicalAnalysis:
     motifs:         dict[str, MotifDef] = field(default_factory=dict)
     form_hint:      str                 = "through_composed"
 
+    # [(beat_position, bpm), ...] — tempo changes at specific beat positions.
+    # Empty = constant tempo at tempo_bpm. First entry should be (0.0, initial_bpm).
+    tempo_map: list[tuple[float, int]] = field(default_factory=list)
+
     # ── Convenience ────────────────────────────────────────────────────────
 
     def add_motif(self, motif: MotifDef) -> "MusicalAnalysis":
@@ -427,7 +431,7 @@ class MusicalAnalysis:
     # ── Serialization ──────────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "key":            self.key,
             "mode":           self.mode,
             "tempo_bpm":      self.tempo_bpm,
@@ -436,6 +440,9 @@ class MusicalAnalysis:
             "motifs":         {k: v.to_dict() for k, v in self.motifs.items()},
             "sections":       [s.to_dict() for s in self.sections],
         }
+        if self.tempo_map:
+            d["tempo_map"] = [[b, t] for b, t in self.tempo_map]
+        return d
 
     def to_json(self, indent: int = 2) -> str:
         return json.dumps(self.to_dict(), indent=indent)
@@ -444,6 +451,7 @@ class MusicalAnalysis:
     def from_dict(cls, d: dict) -> "MusicalAnalysis":
         motifs   = {k: MotifDef.from_dict(v) for k, v in d.get("motifs", {}).items()}
         sections = [SectionSpec.from_dict(s) for s in d.get("sections", [])]
+        tempo_map = [(b, t) for b, t in d.get("tempo_map", [])]
         return cls(
             key=d["key"],
             mode=d["mode"],
@@ -452,6 +460,7 @@ class MusicalAnalysis:
             sections=sections,
             motifs=motifs,
             form_hint=d.get("form_hint", "through_composed"),
+            tempo_map=tempo_map,
         )
 
     @classmethod

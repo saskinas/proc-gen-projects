@@ -55,9 +55,9 @@ def listen_midi(
         open("reproduction.mid", "wb").write(midi_out)
     """
     from audio_listener.midi_parser      import parse_midi
-    from audio_listener.channel_router   import assign_channels
+    from audio_listener.channel_router   import assign_channels, assign_channels_per_section
     from audio_listener.pitch_tracker    import extract_notes, quantise_beats
-    from audio_listener.tempo_meter      import detect_tempo, detect_time_signature
+    from audio_listener.tempo_meter      import detect_tempo, detect_tempo_map, detect_time_signature
     from audio_listener.key_detector     import detect_key_mode
     from audio_listener.phrase_segmenter import segment_phrases, detect_sections
     from audio_listener.section_labeler  import label_sections
@@ -75,6 +75,7 @@ def listen_midi(
 
     # ── 2. Global meter ──────────────────────────────────────────────────────
     tempo_bpm = detect_tempo(raw)
+    tempo_map = detect_tempo_map(raw)
     time_sig  = detect_time_signature(raw)
     beats_per_bar = time_sig[0]
 
@@ -140,6 +141,22 @@ def listen_midi(
     phrases  = segment_phrases(melody, beats_per_bar)
     sections = detect_sections(phrases)
 
+    # ── 6b. Per-section channel assignment ───────────────────────────────────
+    # Extract TrackedNote lists for all non-drum channels and re-score roles
+    # per section so the melody/bass/counter channels can shift between sections.
+    _drum_ch = assignment.drums
+    _all_pitched_channels: dict[int, list] = {}
+    for ch in raw.channels():
+        if ch == _drum_ch:
+            continue
+        notes_ch = _get_notes(ch)
+        if notes_ch:
+            _all_pitched_channels[ch] = notes_ch
+
+    section_assignments = assign_channels_per_section(
+        _all_pitched_channels, assignment, sections,
+    )
+
     # ── 7. Section labels ────────────────────────────────────────────────────
     total_beats    = raw.total_ticks / raw.ticks_per_beat
     section_labels = label_sections(sections, phrases, melody, total_beats)
@@ -190,6 +207,8 @@ def listen_midi(
         key=key, mode=mode,
         phrases=phrases, sections=sections, section_labels=section_labels,
         motifs=motifs,
+        section_assignments=section_assignments,
+        tempo_map=tempo_map,
     )
 
 

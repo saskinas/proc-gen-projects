@@ -97,6 +97,55 @@ def _make_theme_injector(theme_dict: dict):
     return _ThemeInjector
 
 
+def _make_transform_aware_theme_injector(motif, occurrences):
+    """
+    Return a generator class that selects the motif transform variant
+    matching each phrase's occurrence data.
+
+    The generator cycles through occurrence transforms in order as phrases
+    are generated, so phrase 0 uses the first occurrence's transform,
+    phrase 1 uses the second, etc.
+    """
+    class _Injector:
+        def __init__(self, seed):
+            self._call_idx = 0
+
+        def generate(self, params, context=None):
+            # Find the occurrence for this call (phrases generated sequentially)
+            occ = None
+            if self._call_idx < len(occurrences):
+                occ = occurrences[self._call_idx]
+            self._call_idx += 1
+
+            if occ is None:
+                return motif.to_theme_dict()
+
+            transform = occ.get("transform", "original")
+            dur_factor = occ.get("duration_factor", 1.0)
+
+            # Select the right interval variant
+            if "retrograde_inversion" in transform:
+                intervals = list(motif.retrograde_inversion)
+            elif "retrograde" in transform:
+                intervals = list(motif.retrograde)
+            elif "inverted" in transform:
+                intervals = list(motif.inverted)
+            else:
+                intervals = list(motif.intervals)
+
+            durations = [d * dur_factor for d in motif.durations]
+
+            return {
+                "type":       motif.type,
+                "intervals":  intervals,
+                "durations":  durations,
+                "inverted":   [-x for x in intervals],
+                "retrograde": list(reversed(intervals)),
+            }
+
+    return _Injector
+
+
 # ── Transition generation ─────────────────────────────────────────────────────
 
 def generate_transition(
@@ -659,7 +708,15 @@ def generate_section(
     # Priority: explicit motif_id > phrase motif derived from voice_sequences > none
     motif_theme = analysis.get_motif_for_section(section)
     if motif_theme:
-        d.override("theme", _make_theme_injector(motif_theme))
+        motif_occs = section.extra_params.get("_motif_occurrences", [])
+        if motif_occs:
+            motif_def = analysis.motifs.get(section.motif_id)
+            if motif_def:
+                d.override("theme", _make_transform_aware_theme_injector(motif_def, motif_occs))
+            else:
+                d.override("theme", _make_theme_injector(motif_theme))
+        else:
+            d.override("theme", _make_theme_injector(motif_theme))
     elif section.voice_sequences:
         # Derive a phrase-level melodic theme from the lead melodic voice.
         # Uses _find_lead_voice which prefers soprano (≥ 4 notes) and falls
@@ -826,7 +883,10 @@ def generate_from_analysis(
             if trans is not None:
                 scores.append(trans)
 
-    return concatenate_scores(scores)
+    result = concatenate_scores(scores)
+    if hasattr(analysis, 'tempo_map') and analysis.tempo_map:
+        result.tempo_map = analysis.tempo_map
+    return result
 
 
 # ── Path helper ───────────────────────────────────────────────────────────────
