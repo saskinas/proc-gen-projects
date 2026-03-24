@@ -264,11 +264,33 @@ class TestPresetTransforms(unittest.TestCase):
                 self.assertEqual(sec.generation_mode, "replay")
 
     def test_jazz_uses_arrange_mode(self):
-        """Style presets must use arrange mode (keep melody, regenerate bass/drums)."""
+        """Style presets must use arrange mode (keep melody, regenerate accompaniment)."""
         from remixer.presets import JAZZ
         remixed = JAZZ(self.analysis)
         for sec in remixed.sections:
             self.assertEqual(sec.generation_mode, "arrange")
+
+    def test_baroque_slows_fast_tempo(self):
+        """Baroque caps at 140 BPM to keep running sixteenths musical."""
+        from remixer.presets import BAROQUE
+        fast_analysis = self.analysis.__class__(
+            key=self.analysis.key, mode=self.analysis.mode,
+            tempo_bpm=170, time_signature=self.analysis.time_signature,
+            sections=[], motifs={},
+        )
+        remixed = BAROQUE(fast_analysis)
+        self.assertLessEqual(remixed.tempo_bpm, 140)
+
+    def test_classical_slows_fast_tempo(self):
+        """Classical caps at 130 BPM for alberti bass."""
+        from remixer.presets import CLASSICAL
+        fast_analysis = self.analysis.__class__(
+            key=self.analysis.key, mode=self.analysis.mode,
+            tempo_bpm=170, time_signature=self.analysis.time_signature,
+            sections=[], motifs={},
+        )
+        remixed = CLASSICAL(fast_analysis)
+        self.assertLessEqual(remixed.tempo_bpm, 130)
 
     def test_lofi_slows_tempo(self):
         from remixer.presets import LOFI

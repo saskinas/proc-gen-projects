@@ -65,13 +65,32 @@ def jazz(analysis):
 
 
 def baroque(analysis):
-    """Running sixteenth notes, ornaments, high contrapuntal density."""
-    return apply_style_preset(analysis, "baroque")
+    """
+    Running sixteenth notes, ornaments, high contrapuntal density.
+
+    Caps tempo at 140 BPM so running sixteenths stay musical rather than
+    frantic.  Game music at 165-170 BPM with baroque running counterpoint
+    would otherwise be nearly unlistenable.
+    """
+    a = apply_style_preset(analysis, "baroque")
+    _BAROQUE_MAX_BPM = 140
+    if a.tempo_bpm > _BAROQUE_MAX_BPM:
+        a = tempo_scale(a, _BAROQUE_MAX_BPM / a.tempo_bpm)
+    return a
 
 
 def classical(analysis):
-    """Alberti bass, balanced counterpoint, no swing."""
-    return apply_style_preset(analysis, "classical")
+    """
+    Alberti bass, balanced counterpoint, no swing.
+
+    Caps tempo at 130 BPM — classical alberti patterns at faster game-music
+    tempos sound more like a perpetual-motion étude than a sonata.
+    """
+    a = apply_style_preset(analysis, "classical")
+    _CLASSICAL_MAX_BPM = 130
+    if a.tempo_bpm > _CLASSICAL_MAX_BPM:
+        a = tempo_scale(a, _CLASSICAL_MAX_BPM / a.tempo_bpm)
+    return a
 
 
 def folk(analysis):

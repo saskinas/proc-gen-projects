@@ -395,43 +395,67 @@ def arrange_section(
     seed:        int = 0,
 ):
     """
-    Arrange mode: replay all melody/inner voice sequences, generate fresh
-    bass + drums using the section's style parameters.
+    Arrange mode: replay the soprano (primary melody) from the original
+    voice sequences, regenerate ALL other voices in the target style.
 
-    This preserves the original melodic content (soprano, alto, all inner
-    voices) while regenerating the accompaniment layer (bass, drums) in the
-    target style.  The result sounds like "original melody with new backing".
+    The result is "original Kirby melody + new accompaniment":
+      soprano  — replayed from voice_sequences (key/mode adaptive)
+      alto     — freshly generated in target style
+      inner    — freshly generated
+      bass     — freshly generated
+      drums    — freshly generated
 
-    Falls back to full replay if no voice_sequences exist.
-    Falls back to full generation if replay returns nothing.
+    Falls back to full generation for sections where the soprano has fewer
+    than 4 pitched notes (e.g. intro/verse sections in Vegetable Valley
+    where the melody simply doesn't play).
+
+    Why only soprano?  Inner voices in SNES game music are typically fast
+    arpeggio accompaniment patterns.  Replaying them in a jazz or baroque
+    context clashes with the new style.  The soprano carries the recognisable
+    melody; everything else should breathe in the new idiom.
     """
     from copy import deepcopy
     from music_generator import MusicScore
 
     _ensure_paths()
 
-    # 1. Replay all stored sequences to get the full original arrangement
-    replay = replay_section(section, analysis, base_params)
-    if replay is None:
+    # ── 1. Check soprano has meaningful content ────────────────────────────────
+    sop_seq     = section.voice_sequences.get("soprano", [])
+    pitched_sop = [ev for ev in sop_seq if ev.get("degree") != "rest"]
+
+    if len(pitched_sop) < 4:
+        # Soprano is silent or near-silent in this section.
+        # Fall back to full generation so the style still produces music.
+        accomp_sec = deepcopy(section)
+        accomp_sec.voice_sequences = {}
+        accomp_sec.generation_mode = "generate"
+        return generate_section(accomp_sec, analysis, base_params, seed=seed)
+
+    # ── 2. Build a replay score with ONLY soprano ──────────────────────────────
+    sop_only_sec = deepcopy(section)
+    sop_only_sec.voice_sequences = {"soprano": sop_seq}
+    melody = replay_section(sop_only_sec, analysis, base_params)
+    if melody is None:
         return generate_section(section, analysis, base_params, seed=seed)
 
-    # 2. Generate a fresh accompaniment (bass + drums) in the target style.
-    #    Strip voice_sequences so the generator builds accompaniment from scratch.
+    # ── 3. Generate a fresh full arrangement (all voices) ─────────────────────
     accomp_sec = deepcopy(section)
     accomp_sec.voice_sequences = {}
     accomp_sec.generation_mode = "generate"
     accomp = generate_section(accomp_sec, analysis, base_params, seed=seed)
 
-    # 3. Merge: melody/inner from replay, bass/drums from generated
-    _ACCOMP_ROLES = {"bass", "drums"}
+    # ── 4. Merge: soprano from replay, everything else from generated ──────────
+    # The generated section's soprano is discarded; all other generated voices
+    # (alto/countermelody, bass, drums, inner voices) make up the new style.
+    _MELODY_ROLES = {"soprano"}
 
-    replay_voices = replay.metadata.get("voices", [])
+    melody_voices = melody.metadata.get("voices", [])
     accomp_voices = accomp.metadata.get("voices", [t.instrument for t in accomp.tracks])
 
-    replay_map = {
-        role: replay.tracks[i]
-        for i, role in enumerate(replay_voices)
-        if i < len(replay.tracks)
+    melody_map = {
+        role: melody.tracks[i]
+        for i, role in enumerate(melody_voices)
+        if i < len(melody.tracks)
     }
     accomp_map = {
         role: accomp.tracks[i]
@@ -442,24 +466,24 @@ def arrange_section(
     merged_tracks = []
     merged_roles  = []
 
-    # Melody layer: everything replayed except bass/drums
-    for role in replay_voices:
-        if role not in _ACCOMP_ROLES and role in replay_map:
-            merged_tracks.append(replay_map[role])
+    # Primary melody from replay
+    for role in melody_voices:
+        if role in _MELODY_ROLES and role in melody_map:
+            merged_tracks.append(melody_map[role])
             merged_roles.append(role)
 
-    # Accompaniment layer: bass + drums from generated
+    # Everything else (alto, bass, drums, …) from generated style
     for role in accomp_voices:
-        if role in _ACCOMP_ROLES and role in accomp_map:
+        if role not in _MELODY_ROLES and role in accomp_map:
             merged_tracks.append(accomp_map[role])
             merged_roles.append(role)
 
     if not merged_tracks:
-        return replay
+        return melody
 
     return MusicScore(
-        tempo_bpm      = replay.tempo_bpm,
-        time_signature = replay.time_signature,
+        tempo_bpm      = melody.tempo_bpm,
+        time_signature = melody.time_signature,
         tracks         = merged_tracks,
         metadata       = {"voices": merged_roles, "form": "arrange", "intent": {}},
     )
