@@ -52,6 +52,7 @@ SONGS = {
     "vegetable-valley":         KIRBY_DIR / "vegetable-valley.mid",
     "rainbow-resort":           KIRBY_DIR / "rainbow-resort-stage-select.mid",
     "final-boss":               KIRBY_DIR / "final-boss.mid",
+    "merry":                    KIRBY_DIR / "merry.mid",
 }
 
 
@@ -186,6 +187,47 @@ def demo_final_boss(analysis):
         RELATIVE_MINOR, MINIMALIST, seed=7)
 
 
+def demo_merry(analysis):
+    song = "merry"
+    src  = SONGS[song]
+
+    print(f"\n{'-'*66}")
+    print(f"  MERRY  ({src.name})")
+    print(f"{'-'*66}")
+
+    # Baseline: pure reproduction (no transforms)
+    remix_to_file(src, _out(song, "00_original"),       seed=42)
+
+    # Tonal variations
+    remix_to_file(src, _out(song, "01_dark_minor"),     DARK_MINOR,     seed=42)
+    remix_to_file(src, _out(song, "02_relative_minor"), RELATIVE_MINOR, seed=42)
+
+    # Style transplants — good for non-Kirby pieces (tests generalization)
+    remix_to_file(src, _out(song, "03_jazz"),           JAZZ,           seed=42)
+    remix_to_file(src, _out(song, "04_baroque"),        BAROQUE,        seed=42)
+    remix_to_file(src, _out(song, "05_classical"),      CLASSICAL,      seed=42)
+    remix_to_file(src, _out(song, "06_folk"),           FOLK,           seed=42)
+    remix_to_file(src, _out(song, "07_lofi"),           LOFI,           seed=42)
+    remix_to_file(src, _out(song, "08_ambient"),        AMBIENT,        seed=42)
+
+    # Energy
+    remix_to_file(src, _out(song, "09_epic"),           EPIC,           seed=42)
+    remix_to_file(src, _out(song, "10_minimalist"),     MINIMALIST,     seed=42)
+
+    # Melodic manipulation
+    remix_to_file(src, _out(song, "11_mirror_world"),   MIRROR_WORLD,   seed=42)
+    remix_to_file(src, _out(song, "12_retrograde"),     RETROGRADE,     seed=42)
+    remix_to_file(src, _out(song, "13_reharmonized"),   REHARMONIZED,   seed=42)
+
+    # Compound: dark jazz (moody, sophisticated)
+    remix_to_file(src, _out(song, "14_dark_jazz"),
+        DARK_MINOR, JAZZ, seed=42)
+
+    # Compound: epic rock
+    remix_to_file(src, _out(song, "15_epic_rock"),
+        EPIC, ROCK, seed=42)
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 DEMO_FNS = {
@@ -193,6 +235,7 @@ DEMO_FNS = {
     "vegetable-valley": demo_vegetable_valley,
     "rainbow-resort":   demo_rainbow_resort,
     "final-boss":       demo_final_boss,
+    "merry":            demo_merry,
 }
 
 

@@ -117,19 +117,30 @@ def _extract_pitched_sequence(
     cursor = start
 
     for n in in_sec:
-        gap = n.start_beat - cursor
+        # Use max(cursor, n.start_beat) so cursor never goes backward.
+        # If the previous note's quantized duration overlaps this note's start
+        # (common with NES staccato that rounds up to a full grid cell), we
+        # treat the note as starting immediately after the previous one ends.
+        effective_start = max(cursor, n.start_beat)
+        gap = effective_start - cursor
         if gap > 0.02:
             result.append({
                 "degree": "rest", "alter": 0, "octave": 0,
                 "duration": round(gap, 4), "velocity": 0,
             })
-        dur = min(n.duration_beats, end - n.start_beat)
+        # Clip duration to section end; skip notes that start at/past the end.
+        remaining = end - effective_start
+        if remaining <= 0.02:
+            break
+        dur = min(n.duration_beats, remaining)
         dur = max(dur, 0.05)
+        # Don't let minimum-duration padding push cursor past section end.
+        dur = min(dur, remaining)
         ev  = _midi_to_degree_event(n.pitch, tonic_pc, scale_ivs)
         ev["duration"] = round(dur, 4)
         ev["velocity"] = n.velocity
         result.append(ev)
-        cursor = n.start_beat + dur
+        cursor = effective_start + dur
 
     if end - cursor > 0.02:
         result.append({

@@ -340,6 +340,10 @@ def replay_section(
     def _instr_for(voice: str) -> str:
         if voice == "drums":
             return "drums"
+        if voice == "bass":
+            # Triangle channel carries the bass in NES music — use triangle
+            # instrument so the bass sounds lower/softer than melody voices.
+            return "triangle"
         return default_instr
 
     # Replay all voices in a stable order: soprano → inner voices (sorted) → alto → bass → drums
@@ -350,6 +354,13 @@ def replay_section(
         + [v for v in ["alto", "bass", "drums"] if v in seqs]
     )
 
+    def _avg_note_dur(ev_list: list[dict]) -> float:
+        """Mean duration of pitched (non-rest) events."""
+        pitched = [ev for ev in ev_list if ev.get("degree") != "rest"]
+        if not pitched:
+            return 0.0
+        return sum(ev.get("duration", 0.5) for ev in pitched) / len(pitched)
+
     tracks: list = []
     roles:  list = []
 
@@ -358,6 +369,13 @@ def replay_section(
         if not ev_list:
             continue
         is_drum = voice == "drums"
+        # Skip arpeggio-style inner/alto voices (avg note duration < 0.20 beats).
+        # NES arpeggio channels rapidly cycle pitches to fake chords; when
+        # replayed as separate MIDI tracks they sound like noise rather than
+        # harmony. Soprano and bass are always kept as the structural voices.
+        if not is_drum and voice not in ("soprano", "bass"):
+            if _avg_note_dur(ev_list) < 0.20:
+                continue
         notes = []
         for ev in ev_list:
             if is_drum:
@@ -368,7 +386,7 @@ def replay_section(
                     notes.append(Note(pitch, ev["duration"], ev.get("velocity", 80)))
             else:
                 pitch_name = _decode_note_event(ev, tonic_pc, sec_mode)
-                notes.append(Note(pitch_name, ev["duration"], ev.get("velocity", 0)))
+                notes.append(Note(pitch_name, ev["duration"], ev.get("velocity", 80)))
 
         if not notes:
             continue
