@@ -58,44 +58,206 @@ from music_generator.transforms import (
 # ── Style presets ─────────────────────────────────────────────────────────────
 
 def jazz(analysis):
-    """Swing feel, walking bass, jazzy chord extensions, slightly relaxed tempo."""
-    a = apply_style_preset(analysis, "jazz")
+    """
+    Swing feel, walking bass, jazzy chord extensions, slightly relaxed tempo.
+
+    At high source densities (> 2 n/beat), swing and countermelody are
+    dialled back so the jazz style stays legible against a busy melody.
+    """
+    a = deepcopy(analysis)
+
+    for sec in a.sections:
+        density = _soprano_density(sec)
+
+        if density > 2.0:
+            hints = dict(
+                bass_type="walking",        inner_voice_style="block_chords",
+                swing=0.35,                 use_ornaments=False,
+                counterpoint=0.25,          step_leap_ratio=0.55,
+            )
+        else:
+            hints = dict(
+                bass_type="walking",        inner_voice_style="countermelody",
+                swing=0.65,                 use_ornaments=False,
+                counterpoint=0.45,          step_leap_ratio=0.50,
+            )
+
+        for k, v in hints.items():
+            if hasattr(sec.texture, k):
+                setattr(sec.texture, k, v)
+        sec.generation_mode = "arrange"
+
     a = tempo_scale(a, 0.90)
     return a
 
 
+def _soprano_density(section) -> float:
+    """
+    Return the note density of a section's soprano voice in notes-per-beat.
+
+    Used to decide how much contrapuntal activity to add: a dense source
+    melody (e.g. Final Boss at 3-4 n/beat) cannot absorb running sixteenth
+    counterpoint without becoming noise.  A sparse melody (< 0.8 n/beat)
+    positively benefits from it.
+    """
+    sop_seq = section.voice_sequences.get("soprano", [])
+    pitched  = [ev for ev in sop_seq if ev.get("degree") != "rest"]
+    total_dur = sum(ev.get("duration", 0.5) for ev in sop_seq)
+    return len(pitched) / total_dur if total_dur > 0.5 else 0.0
+
+
 def baroque(analysis):
     """
-    Running sixteenth notes, ornaments, high contrapuntal density.
+    Baroque style adapted to source density.
 
-    Caps tempo at 140 BPM so running sixteenths stay musical rather than
-    frantic.  Game music at 165-170 BPM with baroque running counterpoint
-    would otherwise be nearly unlistenable.
+    Rather than always adding running sixteenth counterpoint (which clashes
+    with dense game-music melodies already at 3-4 notes/beat), the texture
+    scales down as the source gets busier:
+
+    Soprano density   Baroque texture chosen
+    ─────────────────────────────────────────
+    < 0.8  n/beat     Full baroque: running sixteenths + ornaments + high
+                      counterpoint (Vivaldi-like; soprano is slow enough to
+                      absorb it)
+    0.8–2  n/beat     Moderate: countermelody + walking bass + light ornaments
+                      (more Handel suite; soprano is already moving, so we
+                      complement rather than compete)
+    > 2    n/beat     Minimal: walking bass + block chords only
+                      (Dense source like Final Boss / Rainbow Resort — any
+                      fast counterpoint would create rhythmic noise)
+
+    Tempo is capped at 140 BPM regardless of tier — baroque running
+    sixteenths at 165 BPM are still too fast even when appropriate.
     """
-    a = apply_style_preset(analysis, "baroque")
-    _BAROQUE_MAX_BPM = 140
-    if a.tempo_bpm > _BAROQUE_MAX_BPM:
-        a = tempo_scale(a, _BAROQUE_MAX_BPM / a.tempo_bpm)
+    a = deepcopy(analysis)
+
+    for sec in a.sections:
+        density = _soprano_density(sec)
+
+        if density > 2.0:
+            # Dense soprano — just provide harmonic bass support
+            hints = dict(
+                bass_type="walking",        inner_voice_style="block_chords",
+                swing=0.0,                  use_ornaments=False,
+                counterpoint=0.15,          step_leap_ratio=0.65,
+                rhythmic_density=0.35,
+            )
+        elif density > 0.8:
+            # Moderate soprano — countermelody instead of running sixteenths
+            hints = dict(
+                bass_type="walking",        inner_voice_style="countermelody",
+                swing=0.0,                  use_ornaments=True,
+                counterpoint=0.55,          step_leap_ratio=0.72,
+                rhythmic_density=0.55,
+            )
+        else:
+            # Sparse soprano — full baroque texture (including 0 = fallback-generated)
+            hints = dict(
+                bass_type="walking",        inner_voice_style="running_sixteenths",
+                swing=0.0,                  use_ornaments=True,
+                counterpoint=0.85,          step_leap_ratio=0.72,
+                rhythmic_density=0.78,
+            )
+
+        for k, v in hints.items():
+            if hasattr(sec.texture, k):
+                setattr(sec.texture, k, v)
+        sec.generation_mode = "arrange"
+
+    # Always cap tempo — prevents frantic sixteenths on fast source material
+    _MAX_BPM = 140
+    if a.tempo_bpm > _MAX_BPM:
+        a = tempo_scale(a, _MAX_BPM / a.tempo_bpm)
     return a
 
 
 def classical(analysis):
     """
-    Alberti bass, balanced counterpoint, no swing.
+    Classical style adapted to source density.
 
-    Caps tempo at 130 BPM — classical alberti patterns at faster game-music
-    tempos sound more like a perpetual-motion étude than a sonata.
+    Alberti bass against a melody playing at 3 notes/beat is
+    indistinguishable from random noise.  Density tiers:
+
+    Soprano density   Classical texture chosen
+    ──────────────────────────────────────────
+    < 0.8  n/beat     Full classical: alberti bass, block-chord inner voices,
+                      moderate counterpoint
+    0.8–2  n/beat     Simplified: walking bass, block chords, low counterpoint
+    > 2    n/beat     Minimal: sustained bass, very sparse — let the melody
+                      carry the piece
+
+    Tempo capped at 130 BPM.
     """
-    a = apply_style_preset(analysis, "classical")
-    _CLASSICAL_MAX_BPM = 130
-    if a.tempo_bpm > _CLASSICAL_MAX_BPM:
-        a = tempo_scale(a, _CLASSICAL_MAX_BPM / a.tempo_bpm)
+    a = deepcopy(analysis)
+
+    for sec in a.sections:
+        density = _soprano_density(sec)
+
+        if density > 2.0:
+            hints = dict(
+                bass_type="sustained",      inner_voice_style="block_chords",
+                swing=0.0,                  use_ornaments=False,
+                counterpoint=0.10,          step_leap_ratio=0.65,
+                rhythmic_density=0.25,
+            )
+        elif density > 0.8:
+            hints = dict(
+                bass_type="walking",        inner_voice_style="block_chords",
+                swing=0.0,                  use_ornaments=False,
+                counterpoint=0.25,          step_leap_ratio=0.65,
+                rhythmic_density=0.45,
+            )
+        else:
+            hints = dict(
+                bass_type="alberti",        inner_voice_style="block_chords",
+                swing=0.0,                  use_ornaments=False,
+                counterpoint=0.25,          step_leap_ratio=0.65,
+                rhythmic_density=0.55,
+            )
+
+        for k, v in hints.items():
+            if hasattr(sec.texture, k):
+                setattr(sec.texture, k, v)
+        sec.generation_mode = "arrange"
+
+    _MAX_BPM = 130
+    if a.tempo_bpm > _MAX_BPM:
+        a = tempo_scale(a, _MAX_BPM / a.tempo_bpm)
     return a
 
 
 def folk(analysis):
-    """Arpeggiated bass, stepwise melody, light ornamentation."""
-    return apply_style_preset(analysis, "folk")
+    """
+    Arpeggiated bass, stepwise melody, light ornamentation.
+
+    At high source densities the arpeggiated bass is replaced with a simpler
+    walking bass so the fast arpeggios don't stack on top of an already busy
+    melody.
+    """
+    a = deepcopy(analysis)
+
+    for sec in a.sections:
+        density = _soprano_density(sec)
+
+        if density > 1.5:
+            hints = dict(
+                bass_type="walking",        inner_voice_style="countermelody",
+                swing=0.0,                  use_ornaments=False,
+                step_leap_ratio=0.75,       counterpoint=0.35,
+            )
+        else:
+            hints = dict(
+                bass_type="arpeggiated",    inner_voice_style="countermelody",
+                swing=0.0,                  use_ornaments=True,
+                step_leap_ratio=0.80,       counterpoint=0.55,
+            )
+
+        for k, v in hints.items():
+            if hasattr(sec.texture, k):
+                setattr(sec.texture, k, v)
+        sec.generation_mode = "arrange"
+
+    return a
 
 
 def ambient(analysis):
@@ -106,8 +268,36 @@ def ambient(analysis):
 
 
 def rock(analysis):
-    """Driving rock bass, block chords, no swing, metronomic feel."""
-    a = apply_style_preset(analysis, "rock")
+    """
+    Driving rock bass, block chords, no swing, metronomic feel.
+
+    At high source densities, block chords are removed (bass+drums only) so
+    the rock drive doesn't compete with an already-dense melody.
+    """
+    a = deepcopy(analysis)
+
+    for sec in a.sections:
+        density = _soprano_density(sec)
+
+        if density > 2.0:
+            hints = dict(
+                bass_type="rock",           inner_voice_style="block_chords",
+                swing=0.0,                  use_ornaments=False,
+                rhythmic_regularity=0.75,   counterpoint=0.10,
+                rhythmic_density=0.40,
+            )
+        else:
+            hints = dict(
+                bass_type="rock",           inner_voice_style="block_chords",
+                swing=0.0,                  use_ornaments=False,
+                rhythmic_regularity=0.75,   counterpoint=0.20,
+            )
+
+        for k, v in hints.items():
+            if hasattr(sec.texture, k):
+                setattr(sec.texture, k, v)
+        sec.generation_mode = "arrange"
+
     a = tempo_scale(a, 1.10)
     return a
 
