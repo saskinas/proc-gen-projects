@@ -92,47 +92,80 @@ def jazz(analysis):
     return a
 
 
-def _lead_voice_name(section) -> str:
-    """Return the role name of the melodic voice with the most pitched notes."""
-    _RHYTHM = {"bass", "drums"}
-    best_role  = "soprano"
-    best_count = 0
+def _melodic_lead(section) -> tuple:
+    """
+    Return (role, seq, pitched_events) for the primary melody voice.
+
+    Soprano is preferred when it has ≥ 4 pitched notes — even if alto has more
+    notes, soprano is the designated lead (it's the highest-pitched channel).
+
+    When soprano is empty/sparse, selects the voice with the SLOWEST average
+    note duration among voices that pass two filters:
+      - avg octave ≥ 3  (lower = bass register)
+      - avg note duration ≥ 0.20 beats  (shorter = arpeggio, not melody)
+    The slowest-note voice is the melody; fast arpeggios have more notes but
+    shorter durations and are inner-voice texture, not the lead melody.
+
+    Returns ("soprano", [], []) when no qualifying lead is found (causing
+    callers to fall back to full generation or density=0).
+    """
+    _RHYTHM  = {"bass", "drums"}
+    _MIN_OCT = 3
+    _MIN_DUR = 0.20
+
+    # ── 1. Prefer soprano when it has meaningful content ──────────────────────
+    sop_seq     = section.voice_sequences.get("soprano", [])
+    sop_pitched = [ev for ev in sop_seq if ev.get("degree") != "rest"]
+    if len(sop_pitched) >= 4:
+        return "soprano", sop_seq, sop_pitched
+
+    # ── 2. Soprano empty/sparse — find the most melodic other voice ───────────
+    best_role    = "soprano"
+    best_seq:    list = []
+    best_pitched: list = []
+    best_score   = -1.0
+
     for role, seq in section.voice_sequences.items():
         if role in _RHYTHM:
             continue
         pitched = [ev for ev in seq if ev.get("degree") != "rest"]
-        if len(pitched) > best_count:
-            best_count = len(pitched)
-            best_role  = role
-    return best_role
+        if len(pitched) < 4:
+            continue
+        avg_oct = sum(ev.get("octave", 4) for ev in pitched) / len(pitched)
+        avg_dur = sum(ev.get("duration", 0.5) for ev in pitched) / len(pitched)
+        if avg_oct < _MIN_OCT or avg_dur < _MIN_DUR:
+            continue
+        # Melody score: rewards slow notes AND enough notes to form a full line.
+        score = avg_dur * (len(pitched) ** 0.5)
+        if score > best_score:
+            best_score   = score
+            best_role    = role
+            best_seq     = seq
+            best_pitched = pitched
+
+    return best_role, best_seq, best_pitched
+
+
+def _lead_voice_name(section) -> str:
+    """Return the role name of the primary melodic voice (see _melodic_lead)."""
+    role, _, _ = _melodic_lead(section)
+    return role
 
 
 def _lead_density(section) -> float:
     """
-    Return the note density (notes-per-beat) of the busiest melodic voice.
+    Return the note density (notes-per-beat) of the primary melodic voice.
 
-    Checks soprano, alto, and all inner voices — not just soprano — because
-    in game music the primary melody is often not in the highest-pitched
-    channel.  For example, Grape Garden intro and Vegetable Valley verse have
-    soprano(0) but alto(46) / alto(107), so checking only soprano would give
-    density = 0.0 and trigger the wrong (sparse) texture tier.
-
-    Bass and drums are excluded as they are rhythm/harmony voices.
+    A slow-note melody (e.g. soprano at 0.6 n/beat) can absorb more baroque
+    counterpoint than a fast arpeggio (4 n/beat).  Uses soprano when present;
+    falls back to the slowest-note melodic voice otherwise.  Returns 0.0 when
+    no qualifying melody is found (triggering the full/sparse texture tier).
     """
-    _RHYTHM = {"bass", "drums"}
-    best_count = 0
-    best_seq   = []
-    for role, seq in section.voice_sequences.items():
-        if role in _RHYTHM:
-            continue
-        pitched = [ev for ev in seq if ev.get("degree") != "rest"]
-        if len(pitched) > best_count:
-            best_count = len(pitched)
-            best_seq   = seq
-    if not best_seq:
+    role, seq, pitched = _melodic_lead(section)
+    if not pitched:
         return 0.0
-    total_dur = sum(ev.get("duration", 0.5) for ev in best_seq)
-    return best_count / total_dur if total_dur > 0.5 else 0.0
+    total_dur = sum(ev.get("duration", 0.5) for ev in seq)
+    return len(pitched) / total_dur if total_dur > 0.5 else 0.0
 
 
 def baroque(analysis):

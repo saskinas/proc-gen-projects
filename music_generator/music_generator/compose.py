@@ -390,24 +390,46 @@ def replay_section(
 
 def _find_lead_voice(section: "SectionSpec"):
     """
-    Return (role, seq) for the non-bass/drums voice with the most pitched notes.
+    Return (role, seq) for the primary melodic voice when soprano is empty/sparse.
 
-    Used by arrange_section to locate the main melody when the soprano voice is
-    empty or sparse (common in game music where the 'melody' channel isn't always
-    the highest-pitched channel extracted by the IR assembler).
+    Selection criteria (all must be met):
+      - Not bass or drums
+      - Average octave ≥ 3  (octave < 3 = bass/contra register, not melody)
+      - Average pitched-note duration ≥ 0.20 beats  (shorter = arpeggio texture)
+      - At least 4 pitched notes
 
-    Returns (None, []) when no melodic content is found.
+    Among qualifying voices, the one with the SLOWEST average note duration is
+    returned — the melody voice in game music plays longer notes than the fast
+    arpeggio inner voices that have many more (shorter) events.
+
+    Returns (None, []) when no qualifying voice is found, which causes
+    arrange_section to fall back to full generation.
     """
-    _RHYTHM = {"bass", "drums"}
+    _RHYTHM   = {"bass", "drums"}
+    _MIN_OCT  = 3     # below octave 3 = bass register
+    _MIN_DUR  = 0.20  # avg note dur below this = arpeggio, not melody
+
     best_role  = None
-    best_count = 0
+    best_score = -1.0
+
     for role, seq in section.voice_sequences.items():
         if role in _RHYTHM:
             continue
         pitched = [ev for ev in seq if ev.get("degree") != "rest"]
-        if len(pitched) > best_count:
-            best_count = len(pitched)
+        if len(pitched) < 4:
+            continue
+        avg_oct = sum(ev.get("octave", 4) for ev in pitched) / len(pitched)
+        avg_dur = sum(ev.get("duration", 0.5) for ev in pitched) / len(pitched)
+        if avg_oct < _MIN_OCT or avg_dur < _MIN_DUR:
+            continue
+        # Melody score: rewards slow notes AND enough notes to form a full line.
+        # avg_dur alone would pick a 4-note phrase over a 39-note one if slightly
+        # slower; the sqrt(n) factor prevents that.
+        score = avg_dur * (len(pitched) ** 0.5)
+        if score > best_score:
+            best_score = score
             best_role  = role
+
     return best_role, section.voice_sequences.get(best_role, [])
 
 
@@ -589,23 +611,11 @@ def generate_section(
         d.override("theme", _make_theme_injector(motif_theme))
     elif section.voice_sequences:
         # Derive a phrase-level melodic theme from the lead melodic voice.
-        # Uses soprano when present, otherwise falls back to the richest
-        # non-bass/drums voice (alto, inner, etc.) — common in game music
-        # where the main melody isn't always in the soprano channel.
-        # This guides the generator to follow the original melody's contour
-        # even when replay is disabled (e.g. after apply_style_preset).
-        _RHYTHM = {"bass", "drums"}
-        lead_seq = section.voice_sequences.get("soprano", [])
-        if not [e for e in lead_seq if e.get("degree") != "rest"]:
-            # Soprano empty — find the richest melodic voice
-            best_count = 0
-            for role, seq in section.voice_sequences.items():
-                if role in _RHYTHM:
-                    continue
-                cnt = len([e for e in seq if e.get("degree") != "rest"])
-                if cnt > best_count:
-                    best_count = cnt
-                    lead_seq   = seq
+        # Uses _find_lead_voice which prefers soprano (≥ 4 notes) and falls
+        # back to the most-melodic non-bass/drums voice when soprano is sparse.
+        _, lead_seq = _find_lead_voice(section)
+        if not lead_seq:
+            lead_seq = section.voice_sequences.get("soprano", [])
         if lead_seq:
             from music_generator import ROOT_TO_PC
             sec_key  = section.extra_params.get("key",  analysis.key)
