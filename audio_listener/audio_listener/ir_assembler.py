@@ -96,6 +96,50 @@ def _midi_to_degree_event(
     return {"degree": best_degree, "alter": best_alter, "octave": octave}
 
 
+def _split_into_layers(
+    notes: list[TrackedNote],
+    epsilon: float = 0.02,
+    max_layers: int = 4,
+    lowest_first: bool = False,
+) -> list[list[TrackedNote]]:
+    """
+    Split a polyphonic list of TrackedNotes into monophonic layers.
+
+    Notes that start within *epsilon* beats of each other are grouped as a chord.
+    By default (lowest_first=False) layer 0 gets the highest pitch per chord so
+    that the primary layer carries the melodic top voice (correct for soprano/alto).
+    Pass lowest_first=True for bass channels so layer 0 carries the root/bass tone.
+
+    Only the primary layer is tagged with the canonical voice name (soprano, alto,
+    bass); extra layers get suffix names (alto_layer_2, bass_layer_2, …) and are
+    captured as additional inner voices so replay_section can play them all.
+    """
+    if not notes:
+        return []
+    sorted_notes = sorted(notes, key=lambda n: (n.start_beat, -n.pitch))
+
+    # Group into chord events (notes within epsilon beats share a start)
+    chords: list[list[TrackedNote]] = []
+    current: list[TrackedNote] = []
+    for note in sorted_notes:
+        if not current or note.start_beat - current[0].start_beat < epsilon:
+            current.append(note)
+        else:
+            chords.append(current)
+            current = [note]
+    if current:
+        chords.append(current)
+
+    n_layers = min(max_layers, max(len(c) for c in chords))
+    layers: list[list[TrackedNote]] = [[] for _ in range(n_layers)]
+    for chord in chords:
+        chord_sorted = sorted(chord, key=lambda n: n.pitch if lowest_first else -n.pitch)
+        for i, note in enumerate(chord_sorted[:n_layers]):
+            layers[i].append(note)
+
+    return [layer for layer in layers if layer]
+
+
 def _extract_pitched_sequence(
     notes: list[TrackedNote],
     start:     float,
@@ -324,17 +368,31 @@ def assemble(
         voice_seqs: dict = {}
 
         if clean_sop:
-            seq = _extract_pitched_sequence(clean_sop,  s_beat, e_beat, tonic_pc, scale_ivs)
+            seq = _extract_pitched_sequence(clean_sop, s_beat, e_beat, tonic_pc, scale_ivs)
             if seq:
                 voice_seqs["soprano"] = seq
+
+        # For polyphonic channels (e.g. piano chords), split into monophonic layers so
+        # every chord tone is captured.  Layer 0 keeps the canonical voice name; extra
+        # layers get a suffix (_layer_2, _layer_3, …) and are replayed as additional
+        # tracks.  Monophonic channels produce a single layer with no suffix.
         if clean_alto:
-            seq = _extract_pitched_sequence(clean_alto, s_beat, e_beat, tonic_pc, scale_ivs)
-            if seq:
-                voice_seqs["alto"] = seq
+            alto_layers = _split_into_layers(clean_alto, lowest_first=False)
+            for li, layer_notes in enumerate(alto_layers):
+                seq = _extract_pitched_sequence(layer_notes, s_beat, e_beat, tonic_pc, scale_ivs)
+                if seq:
+                    vname = "alto" if li == 0 else f"alto_layer_{li + 1}"
+                    voice_seqs[vname] = seq
+
         if clean_bass:
-            seq = _extract_pitched_sequence(clean_bass, s_beat, e_beat, tonic_pc, scale_ivs)
-            if seq:
-                voice_seqs["bass"] = seq
+            # lowest_first=True: primary bass layer carries the lowest pitch (root/bass tone)
+            bass_layers = _split_into_layers(clean_bass, lowest_first=True)
+            for li, layer_notes in enumerate(bass_layers):
+                seq = _extract_pitched_sequence(layer_notes, s_beat, e_beat, tonic_pc, scale_ivs)
+                if seq:
+                    vname = "bass" if li == 0 else f"bass_layer_{li + 1}"
+                    voice_seqs[vname] = seq
+
         if clean_drums:
             seq = _extract_drum_sequence(clean_drums, s_beat, e_beat)
             if seq:
@@ -344,22 +402,38 @@ def assemble(
         for inner_idx, inner_notes in enumerate(clean_inner):
             if not inner_notes:
                 continue
-            seq = _extract_pitched_sequence(inner_notes, s_beat, e_beat, tonic_pc, scale_ivs)
-            if seq:
-                voice_seqs[f"inner_{inner_idx + 1}"] = seq
+            inner_layers = _split_into_layers(inner_notes, lowest_first=False)
+            for li, layer_notes in enumerate(inner_layers):
+                seq = _extract_pitched_sequence(layer_notes, s_beat, e_beat, tonic_pc, scale_ivs)
+                if seq:
+                    vname = (f"inner_{inner_idx + 1}" if li == 0
+                             else f"inner_{inner_idx + 1}_layer_{li + 1}")
+                    voice_seqs[vname] = seq
 
-        # Build source channel map: voice name → MIDI channel number (for remix reference)
+        # Build source channel map: voice name → MIDI channel number.
+        # Extra polyphonic layers share the same MIDI channel as the primary voice
+        # so replay_section can look up their instrument program correctly.
         source_ch_map: dict[str, int] = {}
         if assignment.melody is not None:
             source_ch_map["soprano"] = assignment.melody
         if assignment.countermelody is not None:
             source_ch_map["alto"] = assignment.countermelody
+            for vname in voice_seqs:
+                if vname.startswith("alto_layer_"):
+                    source_ch_map[vname] = assignment.countermelody
         if assignment.bass is not None:
             source_ch_map["bass"] = assignment.bass
+            for vname in voice_seqs:
+                if vname.startswith("bass_layer_"):
+                    source_ch_map[vname] = assignment.bass
         if assignment.drums is not None:
             source_ch_map["drums"] = assignment.drums
         for inner_idx, ch in enumerate(inner_channels):
-            source_ch_map[f"inner_{inner_idx + 1}"] = ch
+            base = f"inner_{inner_idx + 1}"
+            source_ch_map[base] = ch
+            for vname in voice_seqs:
+                if vname.startswith(f"{base}_layer_"):
+                    source_ch_map[vname] = ch
 
         # Build source program map: voice name → GM program number (0-indexed)
         # Used by replay_section to restore the original MIDI instrument colour.
