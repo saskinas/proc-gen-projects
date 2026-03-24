@@ -179,10 +179,17 @@ def describe(analysis) -> str:
             chord_strs = []
             for ev in sec.harmonic_plan[:6]:
                 deg  = getattr(ev, "degree",    getattr(ev, "root_degree", "?"))
-                qual = getattr(ev, "quality",   "")
-                qual_abbr = {"major": "", "minor": "m", "dominant": "7",
-                             "diminished": "°", "augmented": "+",
-                             "half_diminished": "ø"}.get(qual, qual[:3] if qual else "")
+                qual = getattr(ev, "chord_type", getattr(ev, "quality", ""))
+                qual_abbr = {
+                    "maj": "", "major": "",
+                    "min": "m", "minor": "m",
+                    "dom7": "7", "dominant": "7",
+                    "maj7": "M7",
+                    "min7": "m7",
+                    "dim": "°", "diminished": "°",
+                    "aug": "+", "augmented": "+",
+                    "half_diminished": "ø",
+                }.get(qual, "")
                 chord_strs.append(f"{_roman(deg)}{qual_abbr}")
             suffix = "…" if len(sec.harmonic_plan) > 6 else ""
             chords = "  ".join(chord_strs) + suffix

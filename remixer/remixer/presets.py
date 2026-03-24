@@ -49,6 +49,7 @@ from music_generator.transforms import (
     reharmonize,
     sequence_motif,
     fragment_motif,
+    assign_motif,
     invert_melody,
     retrograde_melody,
     octave_shift,
@@ -67,7 +68,7 @@ def jazz(analysis):
     a = deepcopy(analysis)
 
     for sec in a.sections:
-        density = _soprano_density(sec)
+        density = _lead_density(sec)
 
         if density > 2.0:
             hints = dict(
@@ -91,19 +92,47 @@ def jazz(analysis):
     return a
 
 
-def _soprano_density(section) -> float:
-    """
-    Return the note density of a section's soprano voice in notes-per-beat.
+def _lead_voice_name(section) -> str:
+    """Return the role name of the melodic voice with the most pitched notes."""
+    _RHYTHM = {"bass", "drums"}
+    best_role  = "soprano"
+    best_count = 0
+    for role, seq in section.voice_sequences.items():
+        if role in _RHYTHM:
+            continue
+        pitched = [ev for ev in seq if ev.get("degree") != "rest"]
+        if len(pitched) > best_count:
+            best_count = len(pitched)
+            best_role  = role
+    return best_role
 
-    Used to decide how much contrapuntal activity to add: a dense source
-    melody (e.g. Final Boss at 3-4 n/beat) cannot absorb running sixteenth
-    counterpoint without becoming noise.  A sparse melody (< 0.8 n/beat)
-    positively benefits from it.
+
+def _lead_density(section) -> float:
     """
-    sop_seq = section.voice_sequences.get("soprano", [])
-    pitched  = [ev for ev in sop_seq if ev.get("degree") != "rest"]
-    total_dur = sum(ev.get("duration", 0.5) for ev in sop_seq)
-    return len(pitched) / total_dur if total_dur > 0.5 else 0.0
+    Return the note density (notes-per-beat) of the busiest melodic voice.
+
+    Checks soprano, alto, and all inner voices — not just soprano — because
+    in game music the primary melody is often not in the highest-pitched
+    channel.  For example, Grape Garden intro and Vegetable Valley verse have
+    soprano(0) but alto(46) / alto(107), so checking only soprano would give
+    density = 0.0 and trigger the wrong (sparse) texture tier.
+
+    Bass and drums are excluded as they are rhythm/harmony voices.
+    """
+    _RHYTHM = {"bass", "drums"}
+    best_count = 0
+    best_seq   = []
+    for role, seq in section.voice_sequences.items():
+        if role in _RHYTHM:
+            continue
+        pitched = [ev for ev in seq if ev.get("degree") != "rest"]
+        if len(pitched) > best_count:
+            best_count = len(pitched)
+            best_seq   = seq
+    if not best_seq:
+        return 0.0
+    total_dur = sum(ev.get("duration", 0.5) for ev in best_seq)
+    return best_count / total_dur if total_dur > 0.5 else 0.0
 
 
 def baroque(analysis):
@@ -132,7 +161,7 @@ def baroque(analysis):
     a = deepcopy(analysis)
 
     for sec in a.sections:
-        density = _soprano_density(sec)
+        density = _lead_density(sec)
 
         if density > 2.0:
             # Dense soprano — just provide harmonic bass support
@@ -191,7 +220,7 @@ def classical(analysis):
     a = deepcopy(analysis)
 
     for sec in a.sections:
-        density = _soprano_density(sec)
+        density = _lead_density(sec)
 
         if density > 2.0:
             hints = dict(
@@ -237,7 +266,7 @@ def folk(analysis):
     a = deepcopy(analysis)
 
     for sec in a.sections:
-        density = _soprano_density(sec)
+        density = _lead_density(sec)
 
         if density > 1.5:
             hints = dict(
@@ -277,7 +306,7 @@ def rock(analysis):
     a = deepcopy(analysis)
 
     for sec in a.sections:
-        density = _soprano_density(sec)
+        density = _lead_density(sec)
 
         if density > 2.0:
             hints = dict(
@@ -394,29 +423,35 @@ def epic(analysis):
 
 def mirror_world(analysis):
     """
-    Invert the soprano melody in every section that has one.
+    Invert the melody in every section (uses the richest melodic voice).
 
     Every ascending interval becomes descending by the same distance,
     mirrored around the opening note.  Harmony and rhythm unchanged.
+    Works on soprano, alto, or inner voices — whichever carries the melody.
     """
     a = deepcopy(analysis)
     for sec in a.sections:
-        if "soprano" in sec.voice_sequences:
-            a = invert_melody(a, sec.id, "soprano")
+        if not sec.voice_sequences:
+            continue
+        lead = _lead_voice_name(sec)
+        a = invert_melody(a, sec.id, lead)
     return a
 
 
 def retrograde(analysis):
     """
-    Retrograde the soprano pitch order in every section.
+    Retrograde the melody pitch order in every section.
 
     The sequence of pitches is reversed while note durations stay in their
     original positions, preserving rhythm while reversing the melodic arc.
+    Works on soprano, alto, or inner voices — whichever carries the melody.
     """
     a = deepcopy(analysis)
     for sec in a.sections:
-        if "soprano" in sec.voice_sequences:
-            a = retrograde_melody(a, sec.id, "soprano")
+        if not sec.voice_sequences:
+            continue
+        lead = _lead_voice_name(sec)
+        a = retrograde_melody(a, sec.id, lead)
     return a
 
 
@@ -425,15 +460,17 @@ def kaleidoscope(analysis):
     Alternates inversion and retrograde across sections for a fractured effect.
 
     Odd sections (0-indexed) get melodic inversion; even get retrograde.
+    Works on soprano, alto, or inner voices — whichever carries the melody.
     """
     a = deepcopy(analysis)
     for i, sec in enumerate(a.sections):
-        if "soprano" not in sec.voice_sequences:
+        if not sec.voice_sequences:
             continue
+        lead = _lead_voice_name(sec)
         if i % 2 == 0:
-            a = invert_melody(a, sec.id, "soprano")
+            a = invert_melody(a, sec.id, lead)
         else:
-            a = retrograde_melody(a, sec.id, "soprano")
+            a = retrograde_melody(a, sec.id, lead)
     return a
 
 
@@ -441,36 +478,49 @@ def kaleidoscope(analysis):
 
 def fragmented(analysis):
     """
-    Fragment the first detected motif to its opening 3-note cell, then
-    sequence it in ascending steps of a perfect fourth (+5 semitones).
+    Fragment the first motif to its 3-note opening cell, sequence it in
+    ascending fourths, then assign it as the theme for every section.
 
-    Good for creating a sense of obsessive development from a small idea.
+    The original melody is replaced by a newly generated melody built from
+    the fragment — bass/inner voices provide harmonic support.  This creates
+    an obsessive, minimal development where a tiny motivic cell drives the
+    whole piece.
     """
     a = deepcopy(analysis)
     if not a.motifs:
         return a
     mid = next(iter(a.motifs))
     m   = a.motifs[mid]
+    # Build fragment + sequenced version
+    theme_id = mid
     if len(m.intervals) >= 3:
         a = fragment_motif(a, mid, start=0, length=3)
         frag_id = f"{mid}_frag0"
         if frag_id in a.motifs:
             a = sequence_motif(a, frag_id, n_steps=4, step_semitones=5)
+            seq_id = f"{frag_id}_seq"
+            theme_id = seq_id if seq_id in a.motifs else frag_id
+    # Assign the fragment as theme to every section and trigger generation
+    a = assign_motif(a, theme_id)
+    for sec in a.sections:
+        sec.generation_mode = "generate"
     return a
 
 
 def reharmonized(analysis):
     """
-    Re-run harmonic generation on all sections with high complexity.
+    Keep the original melody but rebuild harmonies with richer chord vocabulary.
 
-    Strips existing chord plans and lets the harmonic generator rebuild them
-    with richer chord vocabulary (chord_complexity=0.82).
+    Strips existing chord plans and re-runs the harmonic generator at
+    chord_complexity=0.82 (chromatic extensions, modal mixture, etc.).
+    The melody is preserved via arrange mode; only bass and inner voices
+    are regenerated against the new harmonic plan.
     """
     a = deepcopy(analysis)
     for sec in a.sections:
         sec.harmonic_plan = []
         sec.extra_params["chord_complexity"] = 0.82
-        sec.generation_mode = "generate"
+        sec.generation_mode = "arrange"
     return a
 
 

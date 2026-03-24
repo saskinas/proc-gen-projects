@@ -388,6 +388,29 @@ def replay_section(
 
 # ── Arrange mode ─────────────────────────────────────────────────────────────
 
+def _find_lead_voice(section: "SectionSpec"):
+    """
+    Return (role, seq) for the non-bass/drums voice with the most pitched notes.
+
+    Used by arrange_section to locate the main melody when the soprano voice is
+    empty or sparse (common in game music where the 'melody' channel isn't always
+    the highest-pitched channel extracted by the IR assembler).
+
+    Returns (None, []) when no melodic content is found.
+    """
+    _RHYTHM = {"bass", "drums"}
+    best_role  = None
+    best_count = 0
+    for role, seq in section.voice_sequences.items():
+        if role in _RHYTHM:
+            continue
+        pitched = [ev for ev in seq if ev.get("degree") != "rest"]
+        if len(pitched) > best_count:
+            best_count = len(pitched)
+            best_role  = role
+    return best_role, section.voice_sequences.get(best_role, [])
+
+
 def arrange_section(
     section:     "SectionSpec",
     analysis:    "MusicalAnalysis",
@@ -424,12 +447,21 @@ def arrange_section(
     pitched_sop = [ev for ev in sop_seq if ev.get("degree") != "rest"]
 
     if len(pitched_sop) < 4:
-        # Soprano is silent or near-silent in this section.
-        # Fall back to full generation so the style still produces music.
-        accomp_sec = deepcopy(section)
-        accomp_sec.voice_sequences = {}
-        accomp_sec.generation_mode = "generate"
-        return generate_section(accomp_sec, analysis, base_params, seed=seed)
+        # Soprano is silent/sparse — find the richest melodic voice instead.
+        # In game music the 'melody' is not always in the highest-pitched channel
+        # (e.g. Grape Garden intro and Vegetable Valley verse carry the melody in
+        # the 'alto' slot because a different SNES channel carries it there).
+        lead_role, lead_seq = _find_lead_voice(section)
+        pitched_lead = [ev for ev in lead_seq if ev.get("degree") != "rest"]
+        if len(pitched_lead) < 4:
+            # No usable melody anywhere — full generation.
+            accomp_sec = deepcopy(section)
+            accomp_sec.voice_sequences = {}
+            accomp_sec.generation_mode = "generate"
+            return generate_section(accomp_sec, analysis, base_params, seed=seed)
+        # Promote the lead voice to soprano so the merge logic below treats it
+        # as the preserved melody (keeps it, discards generated soprano).
+        sop_seq = lead_seq
 
     # ── 2. Build a replay score with ONLY soprano ──────────────────────────────
     sop_only_sec = deepcopy(section)
@@ -555,19 +587,33 @@ def generate_section(
     motif_theme = analysis.get_motif_for_section(section)
     if motif_theme:
         d.override("theme", _make_theme_injector(motif_theme))
-    elif section.voice_sequences.get("soprano"):
-        # Derive a phrase-level melodic theme from the captured soprano sequence.
-        # This guides the generator to follow the original melody's contour even
-        # when replay is disabled (e.g. after apply_style_preset or reharmonize).
-        from music_generator import ROOT_TO_PC
-        sec_key  = section.extra_params.get("key",  analysis.key)
-        sec_mode = section.extra_params.get("mode", analysis.mode)
-        tpc      = ROOT_TO_PC.get(sec_key, ROOT_TO_PC.get(analysis.key, 0))
-        phrase_theme = _phrase_motif_from_sequence(
-            section.voice_sequences["soprano"], tpc, sec_mode
-        )
-        if phrase_theme:
-            d.override("theme", _make_theme_injector(phrase_theme))
+    elif section.voice_sequences:
+        # Derive a phrase-level melodic theme from the lead melodic voice.
+        # Uses soprano when present, otherwise falls back to the richest
+        # non-bass/drums voice (alto, inner, etc.) — common in game music
+        # where the main melody isn't always in the soprano channel.
+        # This guides the generator to follow the original melody's contour
+        # even when replay is disabled (e.g. after apply_style_preset).
+        _RHYTHM = {"bass", "drums"}
+        lead_seq = section.voice_sequences.get("soprano", [])
+        if not [e for e in lead_seq if e.get("degree") != "rest"]:
+            # Soprano empty — find the richest melodic voice
+            best_count = 0
+            for role, seq in section.voice_sequences.items():
+                if role in _RHYTHM:
+                    continue
+                cnt = len([e for e in seq if e.get("degree") != "rest"])
+                if cnt > best_count:
+                    best_count = cnt
+                    lead_seq   = seq
+        if lead_seq:
+            from music_generator import ROOT_TO_PC
+            sec_key  = section.extra_params.get("key",  analysis.key)
+            sec_mode = section.extra_params.get("mode", analysis.mode)
+            tpc      = ROOT_TO_PC.get(sec_key, ROOT_TO_PC.get(analysis.key, 0))
+            phrase_theme = _phrase_motif_from_sequence(lead_seq, tpc, sec_mode)
+            if phrase_theme:
+                d.override("theme", _make_theme_injector(phrase_theme))
 
     return d.generate()
 
