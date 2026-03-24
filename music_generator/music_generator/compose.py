@@ -361,7 +361,9 @@ def replay_section(
         if voice == "drums":
             return "drums"
         if voice in src_progs:
-            return _gm_to_instr(src_progs[voice])
+            # Preserve the exact GM program number from the source MIDI so
+            # timbre (e.g. Electric Piano 2 vs Acoustic Grand) is not altered.
+            return f"gm_prog_{src_progs[voice]}"
         if voice == "bass":
             # Triangle channel carries the bass in NES music — use triangle
             # instrument so the bass sounds lower/softer than melody voices.

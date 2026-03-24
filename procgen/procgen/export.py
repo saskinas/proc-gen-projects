@@ -147,7 +147,14 @@ def to_midi(score: Any, ticks_per_beat: int = 480) -> bytes:
 
     for track_idx, track in enumerate(score.tracks):
         channel = _channel_map[track_idx]
-        program = _PROGRAM.get(track.instrument, 0)
+        instr = track.instrument
+        if instr.startswith("gm_prog_"):
+            try:
+                program = int(instr[8:]) & 0x7F
+            except ValueError:
+                program = 0
+        else:
+            program = _PROGRAM.get(instr, 0)
 
         track_bytes = bytearray()
 
@@ -182,7 +189,14 @@ def to_midi(score: Any, ticks_per_beat: int = 480) -> bytes:
                 dur_ticks = int(note.duration * ticks_per_beat)
                 if note.pitch.startswith("__pc__"):
                     instr_name = note.pitch[6:]
-                    events.append((abs_tick, "program_change", channel, _PROGRAM.get(instr_name, 0), 0))
+                    if instr_name.startswith("gm_prog_"):
+                        try:
+                            pc_prog = int(instr_name[8:]) & 0x7F
+                        except ValueError:
+                            pc_prog = 0
+                    else:
+                        pc_prog = _PROGRAM.get(instr_name, 0)
+                    events.append((abs_tick, "program_change", channel, pc_prog, 0))
                     abs_tick += dur_ticks
                     continue
                 if note.pitch == "rest":
