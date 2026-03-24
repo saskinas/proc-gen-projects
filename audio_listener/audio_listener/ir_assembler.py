@@ -313,8 +313,37 @@ def assemble(
         raw = data.notes_for_channel(ch)
         return sum(n.pitch for n in raw) / len(raw) if raw else 0.0
 
+    # Detect and deduplicate stereo-layer channels: identical pitch/timing content
+    # on multiple channels (common in game music for stereo effects).  Keeps the
+    # first occurrence and drops exact duplicates so they don't waste voice slots.
+    def _channel_fingerprint(ch: int) -> tuple:
+        """Quick fingerprint: (note_count, sorted first-10 pitch+tick pairs)."""
+        raw_notes = data.notes_for_channel(ch)
+        if not raw_notes:
+            return ()
+        sorted_n = sorted(raw_notes, key=lambda n: (n.tick_on, n.pitch))
+        return (len(raw_notes),
+                tuple((n.pitch, n.tick_on) for n in sorted_n[:10]))
+
+    # Build set of fingerprints for melody/counter/bass (already-assigned channels)
+    _assigned_fps: set[tuple] = set()
+    for _ach in (assignment.melody, assignment.countermelody, assignment.bass):
+        if _ach is not None:
+            _assigned_fps.add(_channel_fingerprint(_ach))
+
+    # Filter inner channels: skip exact duplicates of already-assigned channels
+    # or of earlier inner channels.
+    _seen_fps: set[tuple] = set(_assigned_fps)
+    _deduped_inner: list[int] = []
+    for ch in (assignment.inner or []):
+        fp = _channel_fingerprint(ch)
+        if fp and fp in _seen_fps:
+            continue  # stereo duplicate — skip
+        _seen_fps.add(fp)
+        _deduped_inner.append(ch)
+
     global_inner_channels = sorted(
-        assignment.inner or [],
+        _deduped_inner,
         key=_ch_mean_pitch,
         reverse=True,   # highest pitch first → inner_1 is the highest inner voice
     )

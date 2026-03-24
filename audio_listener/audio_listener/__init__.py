@@ -102,19 +102,35 @@ def listen_midi(
             ch     = max(non_drum, key=lambda c: len(raw.notes_for_channel(c)))
             melody = _get_notes(ch)
 
-    # If melody doesn't start near beat 0, supplement with the highest-count
-    # non-drum channel that covers the beginning (for phrase detection purposes).
+    # If melody doesn't cover the full piece, supplement with the most active
+    # non-assigned channel that extends beyond the melody's range.
+    # This ensures the phrase segmenter creates phrases for the entire piece,
+    # so per-section routing can capture all channels everywhere.
     if melody:
         total_beats_piece = raw.total_ticks / raw.ticks_per_beat
         melody_start = min(n.start_beat for n in melody)
+        melody_end   = max(n.start_beat + n.duration_beats for n in melody)
+        assigned = {assignment.melody, assignment.bass,
+                    assignment.countermelody, assignment.drums}
+
+        # Supplement start: merge notes from a channel that covers the beginning
         if melody_start > total_beats_piece * 0.10:
-            assigned = {assignment.melody, assignment.bass,
-                        assignment.countermelody, assignment.drums}
             for ch in sorted(raw.channels(), key=lambda c: -len(raw.notes_for_channel(c))):
                 if ch in assigned:
                     continue
                 supp = _get_notes(ch)
                 if supp and min(n.start_beat for n in supp) < melody_start * 0.5:
+                    melody = sorted(melody + supp, key=lambda n: n.start_beat)
+                    assigned.add(ch)
+                    break
+
+        # Supplement end: merge notes from a channel that covers the tail
+        if melody_end < total_beats_piece * 0.90:
+            for ch in sorted(raw.channels(), key=lambda c: -len(raw.notes_for_channel(c))):
+                if ch in assigned:
+                    continue
+                supp = _get_notes(ch)
+                if supp and max(n.start_beat + n.duration_beats for n in supp) > melody_end:
                     melody = sorted(melody + supp, key=lambda n: n.start_beat)
                     break
 
@@ -138,7 +154,8 @@ def listen_midi(
     key, mode = detect_key_mode(_all_non_drum, _bass_key_notes, [])
 
     # ── 6. Phrase and section segmentation ───────────────────────────────────
-    phrases  = segment_phrases(melody, beats_per_bar)
+    total_beats    = raw.total_ticks / raw.ticks_per_beat
+    phrases  = segment_phrases(melody, beats_per_bar, piece_total_beats=total_beats)
     sections = detect_sections(phrases)
 
     # ── 6b. Per-section channel assignment ───────────────────────────────────
@@ -158,7 +175,6 @@ def listen_midi(
     )
 
     # ── 7. Section labels ────────────────────────────────────────────────────
-    total_beats    = raw.total_ticks / raw.ticks_per_beat
     section_labels = label_sections(sections, phrases, melody, total_beats)
 
     # ── 8. Motifs ────────────────────────────────────────────────────────────

@@ -68,16 +68,22 @@ def segment_phrases(
     melody_notes: list[TrackedNote],
     beats_per_bar: int,
     phrase_bars: int = 4,
+    piece_total_beats: float | None = None,
 ) -> list[PhraseSegment]:
     """
     Divide the melody into fixed-length phrases of phrase_bars bars.
 
     phrase_bars is auto-detected: tries 4, 8, 2, then defaults to 4.
+
+    piece_total_beats: if provided, extend phrase coverage to the full piece
+    duration even if the melody doesn't reach that far.  This ensures sections
+    where other channels are active (but the melody is silent) are captured.
     """
     if not melody_notes:
         return []
 
-    total_beats = max(n.start_beat + n.duration_beats for n in melody_notes)
+    melody_end = max(n.start_beat + n.duration_beats for n in melody_notes)
+    total_beats = max(melody_end, piece_total_beats or 0.0)
     bar_beats   = float(beats_per_bar)
 
     # Detect phrase_bars.  Target at least 6 phrases so the section grouper

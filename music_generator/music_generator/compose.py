@@ -436,12 +436,51 @@ def replay_section(
         + [v for v in ["drums"] if v in seqs]
     )
 
-    def _avg_note_dur(ev_list: list[dict]) -> float:
-        """Mean duration of pitched (non-rest) events."""
+    def _is_arpeggio(ev_list: list[dict]) -> bool:
+        """
+        Detect whether a voice is a NES-style arpeggio channel.
+
+        True arpeggios rapidly cycle a small set of pitches (typically 3) to
+        fake chords.  They have: very short notes, few unique pitch classes,
+        and strictly alternating interval directions.  Fast melodic passages
+        (short notes but varied contour and many pitch classes) are NOT
+        arpeggios and should be kept.
+        """
         pitched = [ev for ev in ev_list if ev.get("degree") != "rest"]
-        if not pitched:
-            return 0.0
-        return sum(ev.get("duration", 0.5) for ev in pitched) / len(pitched)
+        if len(pitched) < 6:
+            return False
+        avg_dur = sum(ev.get("duration", 0.5) for ev in pitched) / len(pitched)
+        if avg_dur >= 0.20:
+            return False  # notes long enough — not an arpeggio
+
+        # Count unique pitch classes (degree + alter combos)
+        pcs = {(ev.get("degree", 0), ev.get("alter", 0)) for ev in pitched}
+        if len(pcs) > 5:
+            return False  # too many distinct pitches — melodic passage
+
+        # Check for alternating direction (arpeggio hallmark)
+        # Build a pitch proxy from degree + alter for direction checks
+        def _pitch_proxy(ev):
+            d = ev.get("degree", 0)
+            if d == "rest" or d == 0:
+                return None
+            return d * 12 + ev.get("alter", 0) + ev.get("octave", 4) * 84
+
+        proxies = [_pitch_proxy(ev) for ev in pitched]
+        proxies = [p for p in proxies if p is not None]
+        if len(proxies) < 4:
+            return False
+        intervals = [proxies[i+1] - proxies[i] for i in range(len(proxies)-1)]
+        reversals = sum(
+            1 for i in range(len(intervals)-1)
+            if intervals[i] != 0 and intervals[i+1] != 0
+            and (intervals[i] > 0) != (intervals[i+1] > 0)
+        )
+        non_zero = sum(1 for iv in intervals if iv != 0)
+        if non_zero < 2:
+            return False
+        alternation_ratio = reversals / max(1, non_zero - 1)
+        return alternation_ratio > 0.70  # >70% alternating → arpeggio
 
     tracks: list = []
     roles:  list = []
@@ -451,12 +490,11 @@ def replay_section(
         if not ev_list:
             continue
         is_drum = voice == "drums"
-        # Skip arpeggio-style inner/alto voices (avg note duration < 0.20 beats).
-        # NES arpeggio channels rapidly cycle pitches to fake chords; when
-        # replayed as separate MIDI tracks they sound like noise rather than
-        # harmony. Soprano and bass are always kept as the structural voices.
+        # Skip NES arpeggio channels: rapidly cycling 3 pitches to fake chords.
+        # Soprano and bass are always kept as structural voices.
+        # Fast melodic passages (many pitch classes, varied contour) are kept.
         if not is_drum and voice not in ("soprano", "bass") and not voice.startswith("bass_layer_"):
-            if _avg_note_dur(ev_list) < 0.20:
+            if _is_arpeggio(ev_list):
                 continue
         notes = []
         for ev in ev_list:
