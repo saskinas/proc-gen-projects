@@ -516,11 +516,29 @@ def replay_section(
     if not tracks:
         return None
 
+    # ── Propagate CC and pitch bend events ────────────────────────────────────
+    # These are stored per-channel in extra_params by ir_assembler.
+    # Convert to absolute-beat tuples for export.py.
+    cc_out:  list[tuple[float, int, int, int]] = []
+    pb_out:  list[tuple[float, int, int]]      = []
+    source_cc = section.extra_params.get("_source_cc", {})
+    source_pb = section.extra_params.get("_source_pitch_bends", {})
+    for ch_str, events in source_cc.items():
+        ch = int(ch_str) if isinstance(ch_str, str) else ch_str
+        for ev in events:
+            cc_out.append((ev["beat"], ch, ev["cc"], ev["value"]))
+    for ch_str, events in source_pb.items():
+        ch = int(ch_str) if isinstance(ch_str, str) else ch_str
+        for ev in events:
+            pb_out.append((ev["beat"], ch, ev["value"]))
+
     return MusicScore(
         tempo_bpm      = analysis.tempo_bpm,
         time_signature = tuple(analysis.time_signature),
         tracks         = tracks,
         metadata       = {"voices": roles, "form": "replay", "intent": {}},
+        cc_events      = cc_out,
+        pitch_bends    = pb_out,
     )
 
 
@@ -848,6 +866,27 @@ def concatenate_scores(scores) -> object:
         for r in all_roles
     ]
 
+    # Merge CC and pitch bend events, offsetting beats by cumulative section length
+    all_cc:  list[tuple[float, int, int, int]] = []
+    all_pb:  list[tuple[float, int, int]]      = []
+    beat_offset = 0.0
+    for score in scores:
+        roles = score.metadata.get("voices", [t.instrument for t in score.tracks])
+        track_map = {
+            role: score.tracks[i]
+            for i, role in enumerate(roles)
+            if i < len(score.tracks)
+        }
+        section_beats = max(
+            (sum(n.duration for n in t.notes) for t in track_map.values()),
+            default=0.0,
+        )
+        for beat, ch, cc, val in getattr(score, "cc_events", []):
+            all_cc.append((beat + beat_offset, ch, cc, val))
+        for beat, ch, val in getattr(score, "pitch_bends", []):
+            all_pb.append((beat + beat_offset, ch, val))
+        beat_offset += section_beats
+
     return MusicScore(
         tempo_bpm      = first.tempo_bpm,
         time_signature = first.time_signature,
@@ -857,6 +896,8 @@ def concatenate_scores(scores) -> object:
             "voices":  all_roles,
             "form":    "multi_section",
         },
+        cc_events      = all_cc,
+        pitch_bends    = all_pb,
     )
 
 

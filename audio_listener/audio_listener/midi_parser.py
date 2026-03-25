@@ -29,6 +29,23 @@ class RawNote:
 
 
 @dataclass
+class CCEvent:
+    """One MIDI Control Change event."""
+    channel:    int    # 0-indexed
+    controller: int    # CC number (0-127)
+    value:      int    # CC value (0-127)
+    tick:       int    # absolute tick
+
+
+@dataclass
+class PitchBendEvent:
+    """One MIDI Pitch Bend event."""
+    channel:    int    # 0-indexed
+    value:      int    # 14-bit value, 8192 = centre (no bend)
+    tick:       int    # absolute tick
+
+
+@dataclass
 class MidiData:
     """Parsed representation of a Standard MIDI File."""
     format:           int                            # 0 or 1
@@ -40,6 +57,12 @@ class MidiData:
     total_ticks:      int
     program_numbers:  dict[int, int] = field(        # channel → first GM program number (0-indexed)
         default_factory=dict
+    )
+    cc_events:        list[CCEvent] = field(          # Control Change events (sustain, modulation, etc.)
+        default_factory=list
+    )
+    pitch_bends:      list[PitchBendEvent] = field(   # Pitch bend events
+        default_factory=list
     )
 
     # ── Convenience ───────────────────────────────────────────────────────────
@@ -91,7 +114,7 @@ def _read_varlen(data: bytes, pos: int) -> tuple[int, int]:
     return value, pos
 
 
-def _parse_track(data: bytes) -> tuple[list[RawNote], list, list, dict[int, str], dict[int, int], int]:
+def _parse_track(data: bytes) -> tuple[list[RawNote], list, list, dict[int, str], dict[int, int], int, list[CCEvent], list[PitchBendEvent]]:
     """
     Parse one MTrk chunk.
 
@@ -102,6 +125,8 @@ def _parse_track(data: bytes) -> tuple[list[RawNote], list, list, dict[int, str]
         track_names     : dict[channel, name]  (from TrackName / InstrumentName meta)
         program_numbers : dict[channel, int]   (most common program change per channel)
         last_tick       : absolute tick of last event
+        cc_events       : list[CCEvent]
+        pitch_bends     : list[PitchBendEvent]
     """
     notes: list[RawNote]           = []
     tempo_changes: list            = []
@@ -109,6 +134,8 @@ def _parse_track(data: bytes) -> tuple[list[RawNote], list, list, dict[int, str]
     track_names: dict[int, str]    = {}
     program_numbers: dict[int, int] = {}       # channel → most common GM program
     _prog_counts: dict[int, dict[int, int]] = {}  # channel → {prog → count}
+    cc_events: list[CCEvent]       = []
+    pitch_bends: list[PitchBendEvent] = []
 
     # open_notes[(channel, pitch)] = list of (tick_on, velocity)
     open_notes: dict[tuple[int, int], list[tuple[int, int]]] = {}
@@ -166,14 +193,21 @@ def _parse_track(data: bytes) -> tuple[list[RawNote], list, list, dict[int, str]
         # ── Other channel events ──────────────────────────────────────────────
 
         elif status_type == 0xA0:   i += 2          # Poly aftertouch
-        elif status_type == 0xB0:   i += 2          # Control change
+        elif status_type == 0xB0:                   # Control change
+            cc_num = data[i]; i += 1
+            cc_val = data[i]; i += 1
+            cc_events.append(CCEvent(channel, cc_num, cc_val, abs_tick))
         elif status_type == 0xC0:                   # Program change
             prog = data[i]; i += 1
             if channel not in _prog_counts:
                 _prog_counts[channel] = {}
             _prog_counts[channel][prog] = _prog_counts[channel].get(prog, 0) + 1
         elif status_type == 0xD0:   i += 1          # Channel pressure
-        elif status_type == 0xE0:   i += 2          # Pitch bend
+        elif status_type == 0xE0:                   # Pitch bend
+            lsb = data[i]; i += 1
+            msb = data[i]; i += 1
+            bend_val = (msb << 7) | lsb  # 14-bit, 8192 = centre
+            pitch_bends.append(PitchBendEvent(channel, bend_val, abs_tick))
 
         # ── Meta events ───────────────────────────────────────────────────────
 
@@ -219,7 +253,7 @@ def _parse_track(data: bytes) -> tuple[list[RawNote], list, list, dict[int, str]
     for ch, counts in _prog_counts.items():
         program_numbers[ch] = max(counts, key=counts.get)
 
-    return notes, tempo_changes, time_sig_events, track_names, program_numbers, abs_tick
+    return notes, tempo_changes, time_sig_events, track_names, program_numbers, abs_tick, cc_events, pitch_bends
 
 
 def parse_midi(data: bytes) -> MidiData:
@@ -253,14 +287,18 @@ def parse_midi(data: bytes) -> MidiData:
     all_tsig:  list             = []
     all_names: dict[int, str]   = {}
     all_progs: dict[int, int]   = {}
+    all_cc:    list[CCEvent]    = []
+    all_pb:    list[PitchBendEvent] = []
     max_tick   = 0
 
     for trk in track_chunks:
-        nts, tmp, tsig, names, progs, last = _parse_track(trk)
+        nts, tmp, tsig, names, progs, last, cc, pb = _parse_track(trk)
         all_notes.extend(nts)
         all_tempo.extend(tmp)
         all_tsig.extend(tsig)
         all_names.update(names)
+        all_cc.extend(cc)
+        all_pb.extend(pb)
         # Keep the first program seen per channel across all tracks
         for ch, prog in progs.items():
             if ch not in all_progs:
@@ -278,6 +316,10 @@ def parse_midi(data: bytes) -> MidiData:
     if all_notes:
         max_tick = max(max_tick, max(n.tick_off for n in all_notes))
 
+    # Sort CC and pitch bend by tick for consistent access
+    all_cc.sort(key=lambda e: e.tick)
+    all_pb.sort(key=lambda e: e.tick)
+
     return MidiData(
         format=fmt,
         ticks_per_beat=tpb,
@@ -287,4 +329,6 @@ def parse_midi(data: bytes) -> MidiData:
         track_names=all_names,
         total_ticks=max_tick,
         program_numbers=all_progs,
+        cc_events=all_cc,
+        pitch_bends=all_pb,
     )

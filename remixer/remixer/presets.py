@@ -20,25 +20,43 @@ passed directly to remix() or chained with other presets/transforms:
 
 Available presets
 -----------------
+Style transforms (voice-level):
   jazz          Swing rhythm, walking bass fills, humanised timing.
   baroque       Mordent/turn ornaments, walking bass fills, no swing.
   classical     Alberti bass arpeggiation, clean melody, thinned inner voices.
   folk          Simple broken-chord bass, humanised timing.
   ambient       Thinned voices, soft dynamics, half tempo.
   rock          Driving eighth-note bass, backbeat accents, 110% tempo.
+  lofi          Lazy swing, soft dynamics, humanised timing, 85% tempo.
+  minimalist    Sparse voices, soft dynamics, reduced tempo.
+
+Tonal transforms:
   dark_minor    Parallel mode swap to harmonic minor (same key, darker colour).
   relative_minor Transpose to the relative minor key (−3 semitones + minor).
-  epic          High energy across all sections, develop main motif as sequence.
+
+Energy:
+  epic          High energy across all sections, driving bass, strong accents.
+
+Voice/melodic transforms:
   mirror_world  Invert the soprano melody in every section (melodic mirror).
   retrograde    Retrograde soprano pitch order per section (time reversal).
   kaleidoscope  Alternates invert/retrograde per section for a fractured effect.
+
+Motivic development:
   fragmented    Fragment the first motif to its opening cell + sequence it.
   reharmonized  Re-run harmonic generation on all sections with high complexity.
+
+Melodic variation:
   developed     Classical motivic development cycling techniques per section.
   embellished   Ornamental passing/neighbor tones with increasing density.
   reimagined    Same contour, different intervals — recognisable but fresh.
   evolved       Progressive interval expansion with motif family substitution.
   grooved       Rhythmic displacement focus — same pitches, different groove.
+
+Inspired-by (new compositions from source DNA):
+  inspired_by       New melodies over the source's harmonic progressions + motifs.
+  inspired_sequel   New harmony + melodies seeded from the source's motifs.
+  inspired_contrast Contrasting mood (opposite mode/energy), source motifs as seeds.
 """
 
 from __future__ import annotations
@@ -66,6 +84,7 @@ from music_generator.transforms import (
     melodic_development,
     _section_tonal,
 )
+from music_generator.ir import TextureHints, EnergyProfile
 from music_generator._voice_styler import style_voices
 
 
@@ -579,6 +598,217 @@ def grooved(analysis):
 
 
 
+# ── "Inspired by" presets ───────────────────────────────────────────────────
+#
+# Unlike remixes (which transform the original voices), these generate
+# entirely NEW compositions using the source's musical DNA — motifs,
+# harmonic progressions, key/mode, energy arc, and structural form.
+# The result sounds like it belongs in the same soundtrack without using
+# any of the original notes.
+
+
+def _estimate_texture_from_voices(section) -> TextureHints:
+    """
+    Infer appropriate TextureHints from the source's voice_sequences.
+
+    Examines the original voices to choose generation parameters that
+    produce a similar *feel* (density, bass style, voice count) without
+    copying any actual notes.
+    """
+    vs = section.voice_sequences
+    n_voices = min(4, max(1, len([
+        k for k in vs if k not in ("drums",) and not k.endswith("_layer_2")
+        and not k.endswith("_layer_3") and not k.endswith("_layer_4")
+    ])))
+
+    # Estimate rhythmic density from the lead voice
+    _, lead_seq, lead_pitched = _melodic_lead(section)
+    if lead_pitched:
+        total_dur = sum(ev.get("duration", 0.5) for ev in lead_seq)
+        notes_per_beat = len(lead_pitched) / max(total_dur, 1.0)
+        # Map notes/beat to density: 0.5 n/b → 0.3, 2 n/b → 0.6, 4 n/b → 0.8
+        density = min(0.9, max(0.15, 0.1 + notes_per_beat * 0.18))
+    else:
+        density = 0.45
+
+    # Estimate bass style from bass voice (if present)
+    bass_seq = vs.get("bass", [])
+    bass_pitched = [ev for ev in bass_seq if ev.get("degree") != "rest"]
+    if bass_pitched:
+        avg_bass_dur = sum(ev.get("duration", 0.5) for ev in bass_pitched) / len(bass_pitched)
+        if avg_bass_dur > 1.5:
+            bass_type = "sustained"
+        elif avg_bass_dur > 0.8:
+            bass_type = "walking"
+        elif avg_bass_dur > 0.4:
+            bass_type = "arpeggiated"
+        else:
+            bass_type = "rock"
+    else:
+        bass_type = "sustained"
+
+    # Check if source has drums
+    drum_style = "rock" if "drums" in vs else "none"
+
+    return TextureHints(
+        num_voices=n_voices,
+        rhythmic_density=round(density, 2),
+        bass_type=bass_type,
+        drum_style=drum_style,
+        drum_intensity=0.6,
+        counterpoint=0.4 if n_voices >= 3 else 0.2,
+    )
+
+
+def _estimate_energy(section) -> EnergyProfile:
+    """Estimate energy profile from the source section's voice sequences."""
+    vs = section.voice_sequences
+    if not vs:
+        return EnergyProfile(level=0.5, arc="arch")
+
+    # Use total note count and average velocity as energy proxies
+    all_pitched = []
+    for role, seq in vs.items():
+        if role == "drums":
+            continue
+        all_pitched.extend(ev for ev in seq if ev.get("degree") != "rest")
+
+    if not all_pitched:
+        return EnergyProfile(level=0.5, arc="arch")
+
+    avg_vel = sum(ev.get("velocity", 64) for ev in all_pitched) / len(all_pitched)
+    # Map velocity (40-110) to energy (0.2-0.9)
+    energy = min(0.95, max(0.15, (avg_vel - 40) / 90))
+
+    return EnergyProfile(level=round(energy, 2), arc="arch")
+
+
+def inspired_by(analysis):
+    """
+    Generate new melodies over the source's harmonic progressions and motifs.
+
+    Preserves: key, mode, tempo, time signature, section structure,
+    harmonic plans (chord progressions), motifs, and energy profile.
+    Generates: entirely new melodies, countermelodies, bass lines, and drums.
+
+    The result sounds like an alternate version of the source — same harmonic
+    language and motivic identity, but fresh melodic content.
+    """
+    a = deepcopy(analysis)
+
+    for sec in a.sections:
+        # Infer generation texture from original voice layout
+        sec.texture = _estimate_texture_from_voices(sec)
+        sec.energy = _estimate_energy(sec)
+
+        # Keep harmonic plan (chord progressions) — this is the DNA
+        # Keep motif_id — the generator will build melodies from it
+
+        # Clear voice sequences so the generator creates new ones
+        sec.voice_sequences = {}
+        sec.generation_mode = "generate"
+
+    return a
+
+
+def inspired_sequel(analysis):
+    """
+    New harmony AND melodies seeded from the source's motifs.
+
+    Preserves: key, mode, tempo, time signature, section structure, motifs.
+    Regenerates: harmonic plans AND all voices.
+
+    The motifs provide thematic continuity — the melody will develop the
+    same motivic cells — but the harmonic support is entirely fresh.
+    This creates a "sequel" that shares thematic DNA but charts its own
+    harmonic course.
+    """
+    a = deepcopy(analysis)
+
+    for sec in a.sections:
+        sec.texture = _estimate_texture_from_voices(sec)
+        sec.energy = _estimate_energy(sec)
+
+        # Clear harmonic plan so the generator builds fresh harmony
+        sec.harmonic_plan = []
+
+        # Keep motif_id for thematic continuity
+        # Clear voice sequences
+        sec.voice_sequences = {}
+        sec.generation_mode = "generate"
+
+    # Slightly vary the harmonic parameters to differentiate from source
+    for sec in a.sections:
+        sec.extra_params["chord_complexity"] = 0.55
+        sec.extra_params["circle_of_fifths"] = 0.6
+        sec.extra_params["harmonic_rhythm"] = 0.5
+
+    return a
+
+
+def inspired_contrast(analysis):
+    """
+    Contrasting mood from the source — opposite mode and inverted energy.
+
+    Major → harmonic minor, minor → major. High-energy sections become
+    calm, calm sections become intense.  Motifs are kept but inverted,
+    creating a "shadow" version of the original.
+
+    Preserves: tempo, time signature, section count, motif identity.
+    Transforms: key/mode, energy profile, motif intervals.
+    Generates: entirely new harmonic plans, melodies, and voices.
+    """
+    a = deepcopy(analysis)
+
+    # Flip mode
+    mode_map = {
+        "major": "harmonic_minor",
+        "minor": "major",
+        "harmonic_minor": "major",
+        "dorian": "phrygian",
+        "phrygian": "dorian",
+        "lydian": "mixolydian",
+        "mixolydian": "lydian",
+        "pentatonic_major": "pentatonic_minor",
+        "pentatonic_minor": "pentatonic_major",
+        "blues": "major",
+    }
+    a.mode = mode_map.get(a.mode, "minor" if a.mode == "major" else "major")
+
+    # Invert motif intervals (ascending → descending and vice versa)
+    for mid, motif in a.motifs.items():
+        motif.intervals = [-iv for iv in motif.intervals]
+        motif.inverted = [-iv for iv in motif.inverted]
+        motif.retrograde = list(reversed(motif.intervals))
+        motif.retrograde_inversion = list(reversed(motif.inverted))
+        motif.contour = [-c for c in motif.contour]
+
+    for sec in a.sections:
+        sec.texture = _estimate_texture_from_voices(sec)
+        orig_energy = _estimate_energy(sec)
+
+        # Invert energy: high → low, low → high
+        inverted_level = 1.0 - orig_energy.level
+        inverted_level = max(0.2, min(0.9, inverted_level))
+        arc_map = {"ascending": "descending", "descending": "ascending",
+                   "arch": "arch", "flat": "flat"}
+        sec.energy = EnergyProfile(
+            level=round(inverted_level, 2),
+            arc=arc_map.get(orig_energy.arc, "arch"),
+        )
+
+        # Clear everything for full generation
+        sec.harmonic_plan = []
+        sec.voice_sequences = {}
+        sec.generation_mode = "generate"
+
+        # Encourage contrasting texture
+        sec.extra_params["chord_complexity"] = 0.65
+        sec.extra_params["modal_mixture"] = 0.3
+
+    return a
+
+
 PRESETS: dict[str, callable] = {
     "jazz":           jazz,
     "baroque":        baroque,
@@ -600,7 +830,10 @@ PRESETS: dict[str, callable] = {
     "embellished":    embellished,
     "reimagined":     reimagined,
     "evolved":        evolved,
-    "grooved":        grooved,
+    "grooved":          grooved,
+    "inspired_by":      inspired_by,
+    "inspired_sequel":  inspired_sequel,
+    "inspired_contrast": inspired_contrast,
 }
 
 # Convenience aliases matching common import patterns
@@ -624,4 +857,7 @@ DEVELOPED      = developed
 EMBELLISHED    = embellished
 REIMAGINED     = reimagined
 EVOLVED        = evolved
-GROOVED        = grooved
+GROOVED           = grooved
+INSPIRED_BY       = inspired_by
+INSPIRED_SEQUEL   = inspired_sequel
+INSPIRED_CONTRAST = inspired_contrast

@@ -204,6 +204,10 @@ class MusicScore:
     # [(beat_position, bpm), ...] — mid-piece tempo changes for MIDI export.
     # Empty = constant tempo at tempo_bpm.
     tempo_map: list[tuple[float, int]] = field(default_factory=list)
+    # CC and pitch bend events for replay fidelity.
+    # Each entry: (abs_beat, channel, cc_num, value) or (abs_beat, channel, bend_value)
+    cc_events: list[tuple[float, int, int, int]] = field(default_factory=list)
+    pitch_bends: list[tuple[float, int, int]] = field(default_factory=list)
 
     def describe(self) -> str:
         intent = self.metadata.get("intent", {})

@@ -116,6 +116,11 @@ REMIX_PLAN: list[tuple[str, list[Callable]]] = [
     ("33_minor_ambient",        [_P["relative_minor"], _P["ambient"]]),
     ("34_dark_jazz",            [_P["dark_minor"],   _P["jazz"]]),
     ("35_epic_reharmonized",    [_P["epic"],         _P["reharmonized"]]),
+
+    # ── Inspired-by (new compositions from source DNA) ──────────────────────
+    ("36_inspired_by",          [_P["inspired_by"]]),
+    ("37_inspired_sequel",      [_P["inspired_sequel"]]),
+    ("38_inspired_contrast",    [_P["inspired_contrast"]]),
 ]
 
 

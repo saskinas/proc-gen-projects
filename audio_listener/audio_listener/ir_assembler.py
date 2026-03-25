@@ -670,6 +670,33 @@ def assemble(
             if ch in progs:
                 source_prog_map[vname] = progs[ch]
 
+        # ── CC and pitch bend data for this section ────────────────────────────
+        # Store per-channel CC and pitch bend events as beat-timed lists so
+        # replay_section → export.py can reproduce expression/sustain/modulation.
+        source_cc: dict[int, list[dict]] = {}
+        source_pb: dict[int, list[dict]] = {}
+        if hasattr(data, "cc_events"):
+            s_tick_lo = int(s_beat * data.ticks_per_beat)
+            e_tick_hi = int(e_beat * data.ticks_per_beat)
+            for ev in data.cc_events:
+                if s_tick_lo <= ev.tick < e_tick_hi:
+                    beat = data.tick_to_beat(ev.tick) - s_beat
+                    source_cc.setdefault(ev.channel, []).append({
+                        "beat": round(beat, 4),
+                        "cc": ev.controller,
+                        "value": ev.value,
+                    })
+        if hasattr(data, "pitch_bends"):
+            s_tick_lo = int(s_beat * data.ticks_per_beat)
+            e_tick_hi = int(e_beat * data.ticks_per_beat)
+            for ev in data.pitch_bends:
+                if s_tick_lo <= ev.tick < e_tick_hi:
+                    beat = data.tick_to_beat(ev.tick) - s_beat
+                    source_pb.setdefault(ev.channel, []).append({
+                        "beat": round(beat, 4),
+                        "value": ev.value,
+                    })
+
         section_specs.append(SectionSpec(
             id=f"{role}_{i}",
             label=label,
@@ -685,6 +712,8 @@ def assemble(
                 "_source_channels":    source_ch_map,    # prefixed _ → skipped by generate_section
                 "_source_programs":    source_prog_map,   # prefixed _ → skipped by generate_section
                 "_motif_occurrences":  motif_occs,        # prefixed _ → skipped by generate_section
+                "_source_cc":          source_cc,         # CC events per channel (beat-relative)
+                "_source_pitch_bends": source_pb,         # pitch bend events per channel
             },
             voice_sequences=voice_seqs,
         ))

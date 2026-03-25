@@ -261,6 +261,32 @@ def to_midi(score: Any, ticks_per_beat: int = 480) -> bytes:
         track_bytes += _var_len(0) + b"\xFF\x2F\x00"
         tracks_data.append(bytes(track_bytes))
 
+    # --- CC and pitch bend track ---
+    # If the score carries CC or pitch bend events (captured from source MIDI),
+    # emit them on a dedicated track so they don't interfere with note tracks.
+    cc_events_raw  = getattr(score, "cc_events", [])
+    pb_events_raw  = getattr(score, "pitch_bends", [])
+    if cc_events_raw or pb_events_raw:
+        expr_events: list[tuple[int, bytes]] = []  # (abs_tick, raw_bytes)
+        for beat, ch, cc_num, val in cc_events_raw:
+            tick = round(beat * ticks_per_beat)
+            expr_events.append((tick, bytes([0xB0 | (ch & 0x0F), cc_num & 0x7F, val & 0x7F])))
+        for beat, ch, bend_val in pb_events_raw:
+            tick = round(beat * ticks_per_beat)
+            lsb = bend_val & 0x7F
+            msb = (bend_val >> 7) & 0x7F
+            expr_events.append((tick, bytes([0xE0 | (ch & 0x0F), lsb, msb])))
+        expr_events.sort(key=lambda e: e[0])
+        expr_track = bytearray()
+        prev_tick = 0
+        for tick, raw in expr_events:
+            delta = max(0, tick - prev_tick)
+            expr_track += _var_len(delta)
+            expr_track += raw
+            prev_tick = tick
+        expr_track += _var_len(0) + b"\xFF\x2F\x00"
+        tracks_data.append(bytes(expr_track))
+
     # --- Assemble SMF ---
     num_tracks = len(tracks_data)
     header = struct.pack(">4sIHHH", b"MThd", 6, 1, num_tracks, ticks_per_beat)
