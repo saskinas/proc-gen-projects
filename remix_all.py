@@ -28,6 +28,8 @@ Usage
     python remix_all.py Kirby              # only albums matching 'Kirby'
     python remix_all.py grape              # only songs matching 'grape'
     python remix_all.py --workers 4        # parallel (default: 1)
+    python remix_all.py --skip jazz,folk   # skip these preset names
+    python remix_all.py --only lofi,epic   # only run these preset names
 """
 
 from __future__ import annotations
@@ -306,11 +308,21 @@ def main():
     args = [a for a in args if a not in ("--check-only", "--midi")]
 
     workers = 1
-    for i, a in enumerate(args):
-        if a == "--workers" and i + 1 < len(args):
+    skip_presets: set[str] = set()
+    only_presets: set[str] = set()
+    i = 0
+    while i < len(args):
+        if args[i] == "--workers" and i + 1 < len(args):
             workers = int(args[i + 1])
             args = args[:i] + args[i+2:]
-            break
+        elif args[i] == "--skip" and i + 1 < len(args):
+            skip_presets = {s.strip() for s in args[i + 1].split(",")}
+            args = args[:i] + args[i+2:]
+        elif args[i] == "--only" and i + 1 < len(args):
+            only_presets = {s.strip() for s in args[i + 1].split(",")}
+            args = args[:i] + args[i+2:]
+        else:
+            i += 1
 
     out_ext = ".mid" if use_midi else ".wav"
 
@@ -324,6 +336,30 @@ def main():
             print(f"  Filters applied: {filter_terms}")
         return
 
+    # ── Filter remix plan by --skip / --only ──────────────────────────────────
+    def _remix_uses_preset(remix_stem: str, transforms: list, name: str) -> bool:
+        """Check if a remix entry uses a given preset name (in stem or transform)."""
+        if name in remix_stem:
+            return True
+        for t in transforms:
+            if hasattr(t, "__name__") and t.__name__ == name:
+                return True
+        return False
+
+    if only_presets:
+        active_plan = [
+            (stem, tfs) for stem, tfs in REMIX_PLAN
+            if stem == "00_original"  # always keep baseline
+            or any(_remix_uses_preset(stem, tfs, p) for p in only_presets)
+        ]
+    elif skip_presets:
+        active_plan = [
+            (stem, tfs) for stem, tfs in REMIX_PLAN
+            if not any(_remix_uses_preset(stem, tfs, p) for p in skip_presets)
+        ]
+    else:
+        active_plan = list(REMIX_PLAN)
+
     print()
     print("=" * 70)
     print("  BATCH REMIXER")
@@ -332,8 +368,12 @@ def main():
     print(f"  Output :  {OUT_DIR}")
     print(f"  Format :  {'MIDI' if use_midi else 'WAV'}")
     print(f"  Songs  :  {len(songs)}")
-    print(f"  Remixes:  {len(REMIX_PLAN)} per song  ({len(songs)*len(REMIX_PLAN)} total)")
+    print(f"  Remixes:  {len(active_plan)} per song  ({len(songs)*len(active_plan)} total)")
     print(f"  Workers:  {workers}")
+    if skip_presets:
+        print(f"  Skipped:  {', '.join(sorted(skip_presets))}")
+    if only_presets:
+        print(f"  Only   :  {', '.join(sorted(only_presets))}")
     print()
 
     quality_lines: list[str] = []
@@ -381,7 +421,7 @@ def main():
 
         # ── Generate remixes ───────────────────────────────────────────────────
         tasks = []
-        for remix_stem, transforms in REMIX_PLAN:
+        for remix_stem, transforms in active_plan:
             out_path = song_out / f"{remix_stem}{out_ext}"
             tasks.append((src_path, out_path, remix_stem, transforms))
 
