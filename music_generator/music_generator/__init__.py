@@ -192,6 +192,7 @@ class Note:
 class Track:
     instrument: str
     notes: list[Note]
+    channel: int | None = None   # desired MIDI channel (None = auto-assign)
 
 
 @dataclass

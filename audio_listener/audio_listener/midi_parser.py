@@ -100,14 +100,15 @@ def _parse_track(data: bytes) -> tuple[list[RawNote], list, list, dict[int, str]
         tempo_changes   : list[(abs_tick, uspb)]
         time_sig_events : list[(abs_tick, num, den)]
         track_names     : dict[channel, name]  (from TrackName / InstrumentName meta)
-        program_numbers : dict[channel, int]   (first program change seen per channel)
+        program_numbers : dict[channel, int]   (most common program change per channel)
         last_tick       : absolute tick of last event
     """
     notes: list[RawNote]           = []
     tempo_changes: list            = []
     time_sig_events: list          = []
     track_names: dict[int, str]    = {}
-    program_numbers: dict[int, int] = {}  # channel → first GM program seen
+    program_numbers: dict[int, int] = {}       # channel → most common GM program
+    _prog_counts: dict[int, dict[int, int]] = {}  # channel → {prog → count}
 
     # open_notes[(channel, pitch)] = list of (tick_on, velocity)
     open_notes: dict[tuple[int, int], list[tuple[int, int]]] = {}
@@ -168,8 +169,9 @@ def _parse_track(data: bytes) -> tuple[list[RawNote], list, list, dict[int, str]
         elif status_type == 0xB0:   i += 2          # Control change
         elif status_type == 0xC0:                   # Program change
             prog = data[i]; i += 1
-            if channel not in program_numbers:       # keep first program seen
-                program_numbers[channel] = prog
+            if channel not in _prog_counts:
+                _prog_counts[channel] = {}
+            _prog_counts[channel][prog] = _prog_counts[channel].get(prog, 0) + 1
         elif status_type == 0xD0:   i += 1          # Channel pressure
         elif status_type == 0xE0:   i += 2          # Pitch bend
 
@@ -212,6 +214,10 @@ def _parse_track(data: bytes) -> tuple[list[RawNote], list, list, dict[int, str]
         for (t_on, v_on) in stack:
             dur = max(1, abs_tick - t_on)
             notes.append(RawNote(ch, pitch, v_on, t_on, t_on + dur))
+
+    # Resolve most common program per channel
+    for ch, counts in _prog_counts.items():
+        program_numbers[ch] = max(counts, key=counts.get)
 
     return notes, tempo_changes, time_sig_events, track_names, program_numbers, abs_tick
 

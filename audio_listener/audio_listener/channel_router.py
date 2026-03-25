@@ -135,9 +135,11 @@ def assign_channels(data: MidiData) -> ChannelAssignment:
         pitch_norm = max(0.0, min(1.0, (pitch - 36) / 60.0))
         variety   = _melodic_variety(ch)
         mean_dur  = _mean_duration_beats(ch, tpb)
-        # Melody notes are long (1-2 beats); arpeggio notes are short (0.25-0.5 beats).
-        # Weight by mean duration so arpeggio channels don't dominate via note count.
-        return count * mean_dur * (0.2 + 0.8 * pitch_norm) * variety
+        # Cap mean_dur so sustained drones don't dominate over rhythmic melodies.
+        capped_dur     = min(mean_dur, 2.0)
+        unique_pitches = len(set(n.pitch for n in notes_by_ch[ch]))
+        unique_bonus   = min(1.5, max(0.7, unique_pitches / 7.0))
+        return count * capped_dur * (0.2 + 0.8 * pitch_norm) * variety * unique_bonus
 
     if sorted_ch:
         sorted_ch = sorted(sorted_ch, key=_selection_score)  # ascending score

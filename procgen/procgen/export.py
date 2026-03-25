@@ -153,16 +153,35 @@ def to_midi(score: Any, ticks_per_beat: int = 480) -> bytes:
         "chiptune": 80,  "nes_pulse": 80,
     }
     # MIDI has 16 channels (0-15); channel 9 is reserved for drums.
-    # Assign each non-drum track its own unique channel, skipping 9.
-    _PITCHED_CHANNELS = [c for c in range(16) if c != 9]  # 15 available channels
-    _pitched_idx = 0
+    # When tracks carry a channel hint (from source MIDI), honour it so the
+    # reproduction preserves the original channel/program layout.
+    # Tracks without hints get auto-assigned to unused channels.
+    _PITCHED_CHANNELS = [c for c in range(16) if c != 9]  # 15 available
     _channel_map: dict[int, int] = {}
+    _used_channels: set[int] = set()
+
+    # First pass: assign tracks that have channel hints
     for idx, t in enumerate(score.tracks):
-        if t.instrument == "drums":
+        hint = getattr(t, "channel", None)
+        if t.instrument == "drums" or hint == 9:
             _channel_map[idx] = 9
-        else:
-            _channel_map[idx] = _PITCHED_CHANNELS[_pitched_idx % len(_PITCHED_CHANNELS)]
-            _pitched_idx += 1
+            _used_channels.add(9)
+        elif hint is not None and 0 <= hint <= 15:
+            _channel_map[idx] = hint
+            _used_channels.add(hint)
+
+    # Second pass: auto-assign remaining tracks to unused channels
+    _auto_pool = [c for c in _PITCHED_CHANNELS if c not in _used_channels]
+    _auto_idx = 0
+    for idx, t in enumerate(score.tracks):
+        if idx not in _channel_map:
+            if _auto_pool:
+                _channel_map[idx] = _auto_pool[_auto_idx % len(_auto_pool)]
+                _auto_idx += 1
+            else:
+                # All channels taken — cycle through pitched channels
+                _channel_map[idx] = _PITCHED_CHANNELS[_auto_idx % len(_PITCHED_CHANNELS)]
+                _auto_idx += 1
 
     for track_idx, track in enumerate(score.tracks):
         channel = _channel_map[track_idx]

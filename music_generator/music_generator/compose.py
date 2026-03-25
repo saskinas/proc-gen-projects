@@ -403,11 +403,14 @@ def replay_section(
         elif prog < 112: return "strings"       # synth pad
         else:            return "piano"
 
-    # Per-voice instrument: prefer original GM program if present, otherwise fall back.
+    # Per-voice instrument and channel: prefer original mapping when available.
     src_progs = section.extra_params.get("_source_programs", {})
+    src_channels = section.extra_params.get("_source_channels", {})
 
     def _instr_for(voice: str) -> str:
         if voice == "drums":
+            if "drums" in src_progs:
+                return f"gm_prog_{src_progs['drums']}"
             return "drums"
         if voice in src_progs:
             # Preserve the exact GM program number from the source MIDI so
@@ -492,15 +495,6 @@ def replay_section(
         if not ev_list:
             continue
         is_drum = voice == "drums"
-        # Skip NES arpeggio channels: rapidly cycling 3 pitches to fake chords.
-        # Soprano and bass are always kept as structural voices.
-        # Fast melodic passages (many pitch classes, varied contour) are kept.
-        if (not is_drum
-                and voice not in ("soprano", "bass")
-                and not voice.startswith("soprano_layer_")
-                and not voice.startswith("bass_layer_")):
-            if _is_arpeggio(ev_list):
-                continue
         notes = []
         for ev in ev_list:
             if is_drum:
@@ -515,7 +509,8 @@ def replay_section(
 
         if not notes:
             continue
-        tracks.append(Track(instrument=_instr_for(voice), notes=notes))
+        ch_hint = src_channels.get(voice)
+        tracks.append(Track(instrument=_instr_for(voice), notes=notes, channel=ch_hint))
         roles.append(voice)
 
     if not tracks:
@@ -813,6 +808,7 @@ def concatenate_scores(scores) -> object:
 
     merged:      dict[str, list[Note]] = {r: [] for r in all_roles}
     instruments: dict[str, str]        = {}
+    channels:    dict[str, int | None] = {}  # voice → desired MIDI channel
 
     for score in scores:
         roles     = score.metadata.get("voices", [t.instrument for t in score.tracks])
@@ -836,12 +832,19 @@ def concatenate_scores(scores) -> object:
                     merged[role].append(Note(f"__pc__{track.instrument}", 0.0, 0))
                 merged[role].extend(track.notes)
                 instruments[role] = track.instrument
+                # Preserve channel hint (first non-None wins)
+                if role not in channels or channels[role] is None:
+                    channels[role] = getattr(track, "channel", None)
             elif section_beats > 0:
                 # Silent rest to maintain alignment
                 merged[role].append(Note("C4", section_beats, 0))
 
     tracks = [
-        Track(instrument=instruments.get(r, "piano"), notes=merged[r])
+        Track(
+            instrument=instruments.get(r, "piano"),
+            notes=merged[r],
+            channel=channels.get(r),
+        )
         for r in all_roles
     ]
 

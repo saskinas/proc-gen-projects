@@ -161,30 +161,43 @@ def _extract_pitched_sequence(
     cursor = start
 
     for n in in_sec:
-        # Use max(cursor, n.start_beat) so cursor never goes backward.
-        # If the previous note's quantized duration overlaps this note's start
-        # (common with NES staccato that rounds up to a full grid cell), we
-        # treat the note as starting immediately after the previous one ends.
-        effective_start = max(cursor, n.start_beat)
-        gap = effective_start - cursor
+        gap = n.start_beat - cursor
         if gap > 0.02:
+            # Insert rest to fill the gap before this note.
             result.append({
                 "degree": "rest", "alter": 0, "octave": 0,
                 "duration": round(gap, 4), "velocity": 0,
             })
+            cursor += gap
+        elif gap < -0.02 and result and result[-1]["degree"] != "rest":
+            # Previous note's duration overlaps this note's start.
+            # Clip the previous note so timing stays anchored to the original
+            # beat positions instead of accumulating drift.
+            clip = cursor - n.start_beat
+            prev_dur = result[-1]["duration"]
+            new_dur  = max(0.05, round(prev_dur - clip, 4))
+            result[-1]["duration"] = new_dur
+            cursor -= (prev_dur - new_dur)
+            # Re-check: there may now be a small gap
+            gap2 = n.start_beat - cursor
+            if gap2 > 0.02:
+                result.append({
+                    "degree": "rest", "alter": 0, "octave": 0,
+                    "duration": round(gap2, 4), "velocity": 0,
+                })
+                cursor += gap2
         # Clip duration to section end; skip notes that start at/past the end.
-        remaining = end - effective_start
+        remaining = end - n.start_beat
         if remaining <= 0.02:
             break
         dur = min(n.duration_beats, remaining)
         dur = max(dur, 0.05)
-        # Don't let minimum-duration padding push cursor past section end.
         dur = min(dur, remaining)
         ev  = _midi_to_degree_event(n.pitch, tonic_pc, scale_ivs)
         ev["duration"] = round(dur, 4)
         ev["velocity"] = n.velocity
         result.append(ev)
-        cursor = effective_start + dur
+        cursor = n.start_beat + dur
 
     if end - cursor > 0.02:
         result.append({
@@ -218,14 +231,15 @@ def _extract_drum_sequence(
                 "duration": round(gap, 4), "velocity": 0,
             })
         next_start = in_sec[i + 1].start_beat if i + 1 < len(in_sec) else end
-        dur = max(next_start - n.start_beat, 0.001)
+        dur = max(next_start - n.start_beat, 0.0)
         drum_name = _DRUM_NAMES.get(n.pitch, str(n.pitch))
         result.append({
             "pitch":    drum_name,
             "duration": round(dur, 4),
             "velocity": n.velocity,
         })
-        cursor = next_start
+        # Anchor cursor to actual beat position to prevent drift
+        cursor = n.start_beat + dur
 
     if end - cursor > 0.01:
         result.append({
@@ -525,55 +539,64 @@ def assemble(
         voice_seqs: dict = {}
 
         # Determine which channels provide each role for this section.
-        # When per-section assignments are available, override the global mapping.
+        #
+        # Soprano/alto/bass are ALWAYS pinned to the global assignment so their
+        # channel identity is stable across sections.  If the melody shifts to a
+        # different channel in some section, that channel is captured as an inner
+        # voice (inner_chN) and the gap-filler borrows its notes into soprano.
+        #
+        # Per-section routing only affects which non-primary channels appear as
+        # inner voices for this section.
+        sec_sop   = clean_sop
+        sec_alto  = clean_alto
+        sec_bass  = clean_bass
+        sec_drums = clean_drums
+        sec_melody_ch   = assignment.melody
+        sec_counter_ch  = assignment.countermelody
+        sec_bass_ch     = assignment.bass
+        sec_drums_ch    = assignment.drums
+
+        # Build inner channel list: all non-drum, non-primary channels active
+        # in this section.  Use per-section assignment for inner ordering when
+        # available, otherwise fall back to global.
         if section_assignments is not None and i < len(section_assignments):
             sec_asgn = section_assignments[i]
-            sec_sop   = _cached_clean(sec_asgn.melody)
-            sec_alto  = _cached_clean(sec_asgn.countermelody)
-            sec_bass  = _cached_clean(sec_asgn.bass)
-            sec_drums = (_cached_clean(sec_asgn.drums)
-                         if sec_asgn.drums is not None else [])
+            # Collect all channels that appear in the per-section assignment
+            # but are NOT the global primary voices → these become inner voices.
+            _primary = {assignment.melody, assignment.countermelody,
+                        assignment.bass, assignment.drums}
+            _sec_all = set()
+            for ch in [sec_asgn.melody, sec_asgn.countermelody, sec_asgn.bass]:
+                if ch is not None:
+                    _sec_all.add(ch)
+            _sec_all.update(sec_asgn.inner or [])
             sec_inner_channels = sorted(
-                sec_asgn.inner or [],
+                [ch for ch in _sec_all if ch not in _primary],
                 key=_ch_mean_pitch,
                 reverse=True,
             )
             sec_inner = [_cached_clean(ch) for ch in sec_inner_channels]
-            sec_melody_ch   = sec_asgn.melody
-            sec_counter_ch  = sec_asgn.countermelody
-            sec_bass_ch     = sec_asgn.bass
-            sec_drums_ch    = sec_asgn.drums
         else:
-            sec_sop   = clean_sop
-            sec_alto  = clean_alto
-            sec_bass  = clean_bass
-            sec_drums = clean_drums
             sec_inner_channels = global_inner_channels
             sec_inner = clean_inner
-            sec_melody_ch   = assignment.melody
-            sec_counter_ch  = assignment.countermelody
-            sec_bass_ch     = assignment.bass
-            sec_drums_ch    = assignment.drums
 
         if sec_sop:
-            # Fill long silences in the soprano from alto/inner voices so that
-            # melody shifts to a different channel are captured correctly.
-            _alt_pools = [p for p in ([sec_alto] + sec_inner) if p]
-            if _alt_pools:
-                sec_sop = _fill_melody_gaps(sec_sop, _alt_pools, s_beat, e_beat)
-            sop_layers = _split_into_layers(sec_sop, lowest_first=False)
+            # Do NOT gap-fill soprano here — it would move notes from their
+            # original channel onto the soprano channel, breaking reproduction.
+            # Melody shifts to other channels are captured as inner_chN voices
+            # with channel-based naming, preserving per-channel fidelity.
+            sop_layers = _split_into_layers(sec_sop, lowest_first=False, max_layers=4)
             for li, layer_notes in enumerate(sop_layers):
                 seq = _extract_pitched_sequence(layer_notes, s_beat, e_beat, tonic_pc, scale_ivs)
                 if seq:
                     vname = "soprano" if li == 0 else f"soprano_layer_{li + 1}"
                     voice_seqs[vname] = seq
 
-        # For polyphonic channels (e.g. piano chords), split into monophonic layers so
-        # every chord tone is captured.  Layer 0 keeps the canonical voice name; extra
-        # layers get a suffix (_layer_2, _layer_3, …) and are replayed as additional
-        # tracks.  Monophonic channels produce a single layer with no suffix.
+        # For polyphonic channels (e.g. piano chords), split into monophonic layers.
+        # Limit to 2 layers to avoid track explosion — layer 0 carries the primary
+        # voice, layer 1 captures chord seconds.
         if sec_alto:
-            alto_layers = _split_into_layers(sec_alto, lowest_first=False)
+            alto_layers = _split_into_layers(sec_alto, lowest_first=False, max_layers=4)
             for li, layer_notes in enumerate(alto_layers):
                 seq = _extract_pitched_sequence(layer_notes, s_beat, e_beat, tonic_pc, scale_ivs)
                 if seq:
@@ -582,7 +605,7 @@ def assemble(
 
         if sec_bass:
             # lowest_first=True: primary bass layer carries the lowest pitch (root/bass tone)
-            bass_layers = _split_into_layers(sec_bass, lowest_first=True)
+            bass_layers = _split_into_layers(sec_bass, lowest_first=True, max_layers=4)
             for li, layer_notes in enumerate(bass_layers):
                 seq = _extract_pitched_sequence(layer_notes, s_beat, e_beat, tonic_pc, scale_ivs)
                 if seq:
@@ -594,16 +617,21 @@ def assemble(
             if seq:
                 voice_seqs["drums"] = seq
 
-        # Capture all inner channels, sorted by mean pitch descending (highest first)
-        for inner_idx, inner_notes in enumerate(sec_inner):
+        # Capture all inner channels, keyed by MIDI channel number for stability.
+        # Using channel-based names (inner_ch2, inner_ch14) instead of rank-based
+        # (inner_1, inner_2) ensures the same MIDI channel maps to the same voice
+        # across sections, preventing concatenate_scores from mixing channels.
+        for inner_idx, ch in enumerate(sec_inner_channels):
+            inner_notes = sec_inner[inner_idx]
             if not inner_notes:
                 continue
-            inner_layers = _split_into_layers(inner_notes, lowest_first=False)
+            # Limit inner voice layers to 2 to avoid track explosion
+            inner_layers = _split_into_layers(inner_notes, lowest_first=False, max_layers=4)
             for li, layer_notes in enumerate(inner_layers):
                 seq = _extract_pitched_sequence(layer_notes, s_beat, e_beat, tonic_pc, scale_ivs)
                 if seq:
-                    vname = (f"inner_{inner_idx + 1}" if li == 0
-                             else f"inner_{inner_idx + 1}_layer_{li + 1}")
+                    vname = (f"inner_ch{ch}" if li == 0
+                             else f"inner_ch{ch}_layer_{li + 1}")
                     voice_seqs[vname] = seq
 
         # Build source channel map: voice name → MIDI channel number.
@@ -627,8 +655,8 @@ def assemble(
                     source_ch_map[vname] = sec_bass_ch
         if sec_drums_ch is not None:
             source_ch_map["drums"] = sec_drums_ch
-        for inner_idx, ch in enumerate(sec_inner_channels):
-            base = f"inner_{inner_idx + 1}"
+        for ch in sec_inner_channels:
+            base = f"inner_ch{ch}"
             source_ch_map[base] = ch
             for vname in voice_seqs:
                 if vname.startswith(f"{base}_layer_"):
