@@ -6,19 +6,19 @@ Public API
     analyze(source)                 → MusicalAnalysis
     describe(analysis)              → str   (formatted human-readable report)
     remix(source, *transforms, ...) → bytes (MIDI)
-    remix_to_file(source, out, ...)         (writes file, prints summary)
+    remix_to_file(source, out, ...)         (writes .mid or .wav depending on ext)
+    remix_to_wav(source, out, ...)          (always writes .wav)
 
     from remixer.presets import JAZZ, DARK_MINOR, BAROQUE, EPIC, AMBIENT, MIRROR_WORLD
 
 Example
 -------
-    from remixer import remix
-    from remixer.presets import JAZZ, DARK_MINOR
+    from remixer import remix_to_wav
+    from remixer.presets import JAZZ
 
-    midi_bytes = remix("grape-garden.mid", JAZZ, seed=42)
-    open("remix.mid", "wb").write(midi_bytes)
+    remix_to_wav("grape-garden.mid", "grape-garden-jazz.wav", JAZZ, seed=42)
 """
 
-from remixer.pipeline import analyze, describe, remix, remix_to_file
+from remixer.pipeline import analyze, describe, remix, remix_to_file, remix_to_wav
 
-__all__ = ["analyze", "describe", "remix", "remix_to_file"]
+__all__ = ["analyze", "describe", "remix", "remix_to_file", "remix_to_wav"]

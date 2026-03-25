@@ -225,7 +225,12 @@ def _score_tracked_notes(notes: list[TrackedNote]) -> float:
         arp_fraction = reversals / max(1, len(intervals) - 1)
         variety = 1.0 - arp_fraction * 0.8
 
-    return count * mean_dur * (0.2 + 0.8 * pitch_norm) * variety
+    # Cap mean_dur so sustained drones don't dominate over rhythmic melodies.
+    # Add unique-pitch bonus so channels with distinct melodic content score higher.
+    capped_dur     = min(mean_dur, 2.0)
+    unique_pitches = len(set(n.pitch for n in notes))
+    unique_bonus   = min(1.5, max(0.7, unique_pitches / 7.0))
+    return count * capped_dur * (0.2 + 0.8 * pitch_norm) * variety * unique_bonus
 
 
 def assign_channels_per_section(

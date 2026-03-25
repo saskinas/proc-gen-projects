@@ -183,29 +183,30 @@ def to_midi(score: Any, ticks_per_beat: int = 480) -> bytes:
 
         # Convert notes to events (absolute tick)
         events = []
-        abs_tick = 0
+        beat_pos = 0.0  # accumulate in float beats; convert to ticks at each note
         if channel == 9:
             # Drum track: rest-encoded timing
-            # Note("rest", gap, 0)      -> advance clock only
-            # Note(voice, 0.0, vel)     -> drum hit at current position
+            # Note("rest"/"kick"/..., gap_to_next, velocity) where velocity==0 → advance only
             for note in track.notes:
-                dur_ticks = int(note.duration * ticks_per_beat)
+                abs_tick = round(beat_pos * ticks_per_beat)
+                beat_pos += note.duration
                 if note.velocity == 0:
-                    abs_tick += dur_ticks
-                else:
-                    midi_note = _DRUM_MIDI.get(note.pitch, None)
-                    if midi_note is None:
-                        try:
-                            midi_note = int(note.pitch)  # numeric MIDI note stored as string
-                        except (ValueError, TypeError):
-                            midi_note = _NOTE_MIDI.get(note.pitch, 36)
-                    events.append((abs_tick, "note_on", channel, midi_note, note.velocity))
-                    off_tick = abs_tick + max(1, ticks_per_beat // 8)
-                    events.append((off_tick, "note_off", channel, midi_note, 0))
-                    abs_tick += dur_ticks
+                    continue  # rest — position already advanced
+                midi_note = _DRUM_MIDI.get(note.pitch, None)
+                if midi_note is None:
+                    try:
+                        midi_note = int(note.pitch)
+                    except (ValueError, TypeError):
+                        midi_note = _NOTE_MIDI.get(note.pitch, 36)
+                events.append((abs_tick, "note_on", channel, midi_note, note.velocity))
+                off_tick = abs_tick + max(1, ticks_per_beat // 8)
+                events.append((off_tick, "note_off", channel, midi_note, 0))
         else:
             for note in track.notes:
-                dur_ticks = int(note.duration * ticks_per_beat)
+                abs_tick = round(beat_pos * ticks_per_beat)
+                beat_pos += note.duration
+                end_tick = max(abs_tick + 1, round(beat_pos * ticks_per_beat))
+                dur_ticks = end_tick - abs_tick
                 if note.pitch.startswith("__pc__"):
                     instr_name = note.pitch[6:]
                     if instr_name.startswith("gm_prog_"):
@@ -216,15 +217,12 @@ def to_midi(score: Any, ticks_per_beat: int = 480) -> bytes:
                     else:
                         pc_prog = _PROGRAM.get(instr_name, 0)
                     events.append((abs_tick, "program_change", channel, pc_prog, 0))
-                    abs_tick += dur_ticks
                     continue
                 if note.pitch == "rest":
-                    abs_tick += dur_ticks
                     continue
                 midi_note = _NOTE_MIDI.get(note.pitch, 60)
                 events.append((abs_tick, "note_on",  channel, midi_note, note.velocity))
                 events.append((abs_tick + dur_ticks, "note_off", channel, midi_note, 0))
-                abs_tick += dur_ticks
 
         # Sort by time (note_off before note_on at same tick)
         events.sort(key=lambda e: (e[0], {"note_off": 0, "program_change": 1, "note_on": 2}.get(e[1], 2)))

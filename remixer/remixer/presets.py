@@ -34,6 +34,11 @@ Available presets
   kaleidoscope  Alternates invert/retrograde per section for a fractured effect.
   fragmented    Fragment the first motif to its opening cell + sequence it.
   reharmonized  Re-run harmonic generation on all sections with high complexity.
+  developed     Classical motivic development cycling techniques per section.
+  embellished   Ornamental passing/neighbor tones with increasing density.
+  reimagined    Same contour, different intervals — recognisable but fresh.
+  evolved       Progressive interval expansion with motif family substitution.
+  grooved       Rhythmic displacement focus — same pitches, different groove.
 """
 
 from __future__ import annotations
@@ -53,6 +58,12 @@ from music_generator.transforms import (
     invert_melody,
     retrograde_melody,
     octave_shift,
+    vary_intervals,
+    embellish_melody,
+    rhythmic_displace,
+    contour_remap,
+    motif_substitute,
+    melodic_development,
 )
 
 
@@ -619,6 +630,134 @@ def reharmonized(analysis):
 
 # ── Registry ──────────────────────────────────────────────────────────────────
 
+
+# ── Melodic variation presets ────────────────────────────────────────────────
+
+def developed(analysis):
+    """
+    Classical motivic development: each section gets a different treatment.
+
+    Cycles through expand / contract / sequence_up / ornament / displace
+    across sections so the melody evolves progressively.
+    """
+    a = deepcopy(analysis)
+    techniques = ['contract', 'expand', 'sequence_up', 'ornament', 'displace', 'expand']
+    targets = [
+        (i, sec.id, _lead_voice_name(sec))
+        for i, sec in enumerate(a.sections)
+        if sec.voice_sequences
+    ]
+    for i, sec_id, lead in targets:
+        tech = techniques[i % len(techniques)]
+        a = melodic_development(a, sec_id, lead, technique=tech, seed=i * 7)
+    return a
+
+
+def embellished(analysis):
+    """
+    Add ornamental passing/neighbor tones throughout the melody.
+
+    Density increases across sections: early sections get light ornamentation
+    (20%), later sections get heavier embellishment (50%).  Rhythm is also
+    slightly displaced in later sections for groove variety.
+    """
+    a = deepcopy(analysis)
+    n = max(len(a.sections), 1)
+    targets = [
+        (i, sec.id, _lead_voice_name(sec))
+        for i, sec in enumerate(a.sections)
+        if sec.voice_sequences
+    ]
+    for i, sec_id, lead in targets:
+        t = i / max(n - 1, 1)
+        dens = 0.20 + t * 0.30
+        a = embellish_melody(a, sec_id, lead, density=dens, seed=i * 13)
+        if t > 0.5:
+            a = rhythmic_displace(a, sec_id, lead,
+                                  displacement=0.125, probability=0.25, seed=i * 17)
+    return a
+
+
+def reimagined(analysis):
+    """
+    Same contour, different intervals — a recognisable but fresh melody.
+
+    Uses contour_remap to preserve the up/down shape of the original melody
+    while replacing the interval sizes.  Early sections use whole-step motion
+    (smooth), middle sections use thirds, and the final section widens to
+    quartal intervals.  Combined with light embellishment and rhythmic
+    displacement for Suno AI stems.
+    """
+    a = deepcopy(analysis)
+    n = max(len(a.sections), 1)
+    step_schedule = [2, 2, 3, 3, 4, 5]
+    targets = [
+        (i, sec.id, _lead_voice_name(sec))
+        for i, sec in enumerate(a.sections)
+        if sec.voice_sequences
+    ]
+    for i, sec_id, lead in targets:
+        step = step_schedule[i % len(step_schedule)]
+        a = contour_remap(a, sec_id, lead, step_size=step, seed=i * 11)
+        if i % 2 == 1:
+            a = embellish_melody(a, sec_id, lead, density=0.25, seed=i * 19)
+        t = i / max(n - 1, 1)
+        if t > 0.4:
+            a = rhythmic_displace(a, sec_id, lead,
+                                  displacement=0.125, probability=0.20, seed=i * 23)
+    return a
+
+
+def evolved(analysis):
+    """
+    Progressive interval expansion with motif substitution.
+
+    Each section's melody intervals are scaled slightly wider than the
+    previous (factor 1.0 -> 1.5).  Where motifs from the same contour
+    family exist, occurrences are swapped with family members.
+    """
+    a = deepcopy(analysis)
+    n = max(len(a.sections), 1)
+    targets = [
+        (i, sec.id, _lead_voice_name(sec))
+        for i, sec in enumerate(a.sections)
+        if sec.voice_sequences
+    ]
+    for i, sec_id, lead in targets:
+        t = i / max(n - 1, 1)
+        factor = 1.0 + t * 0.5
+        a = vary_intervals(a, sec_id, lead, factor=factor, seed=i * 31)
+        a = motif_substitute(a, sec_id, lead, seed=i * 37)
+    return a
+
+
+def grooved(analysis):
+    """
+    Rhythmic variation focus — same pitches, different groove.
+
+    Early sections get light anticipations, middle sections get heavier
+    syncopation, and the final section combines displacement with interval
+    contraction for a tight, driving feel.
+    """
+    a = deepcopy(analysis)
+    n = max(len(a.sections), 1)
+    targets = [
+        (i, sec.id, _lead_voice_name(sec))
+        for i, sec in enumerate(a.sections)
+        if sec.voice_sequences
+    ]
+    for i, sec_id, lead in targets:
+        t = i / max(n - 1, 1)
+        disp = 0.125 + t * 0.25
+        prob = 0.25 + t * 0.30
+        a = rhythmic_displace(a, sec_id, lead,
+                              displacement=disp, probability=prob, seed=i * 41)
+        if t > 0.65:
+            a = vary_intervals(a, sec_id, lead, factor=0.8, seed=i * 43)
+    return a
+
+
+
 PRESETS: dict[str, callable] = {
     "jazz":           jazz,
     "baroque":        baroque,
@@ -636,6 +775,11 @@ PRESETS: dict[str, callable] = {
     "kaleidoscope":   kaleidoscope,
     "fragmented":     fragmented,
     "reharmonized":   reharmonized,
+    "developed":      developed,
+    "embellished":    embellished,
+    "reimagined":     reimagined,
+    "evolved":        evolved,
+    "grooved":        grooved,
 }
 
 # Convenience aliases matching common import patterns
@@ -655,3 +799,8 @@ RETROGRADE     = retrograde
 KALEIDOSCOPE   = kaleidoscope
 FRAGMENTED     = fragmented
 REHARMONIZED   = reharmonized
+DEVELOPED      = developed
+EMBELLISHED    = embellished
+REIMAGINED     = reimagined
+EVOLVED        = evolved
+GROOVED        = grooved

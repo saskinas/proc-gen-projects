@@ -20,6 +20,8 @@ object without mutating the input.  Chain them to build remix pipelines:
 
 from __future__ import annotations
 
+import math
+
 from copy import deepcopy
 from typing import Callable, TYPE_CHECKING
 
@@ -903,3 +905,16 @@ def compose(
     for fn in transforms:
         result = fn(result)
     return result
+
+
+# ── Melodic variation transforms (delegated to _melodic_variation module) ─────
+# Re-exported here so callers use a single import path.
+
+from music_generator._melodic_variation import (   # noqa: E402
+    vary_intervals,
+    embellish_melody,
+    rhythmic_displace,
+    contour_remap,
+    motif_substitute,
+    melodic_development,
+)

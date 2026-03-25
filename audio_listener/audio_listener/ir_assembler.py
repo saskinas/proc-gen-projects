@@ -252,6 +252,92 @@ def _get_clean_channel_notes(
     return quantise_beats(notes) if quantise else notes
 
 
+def _pitch_similarity(notes_a: list, notes_b: list) -> float:
+    """Cosine similarity of per-MIDI-pitch count histograms."""
+    from collections import Counter
+    hA = Counter(n.pitch for n in notes_a)
+    hB = Counter(n.pitch for n in notes_b)
+    all_p = set(hA) | set(hB)
+    if not all_p:
+        return 0.0
+    a = [hA.get(p, 0) for p in all_p]
+    b = [hB.get(p, 0) for p in all_p]
+    dot  = sum(x * y for x, y in zip(a, b))
+    na   = sum(x * x for x in a) ** 0.5
+    nb   = sum(x * x for x in b) ** 0.5
+    return dot / (na * nb + 1e-9)
+
+
+def _mean_velocity(notes: list) -> float:
+    if not notes:
+        return 0.0
+    return sum(n.velocity for n in notes) / len(notes)
+
+
+def _fill_melody_gaps(
+    primary:   list[TrackedNote],
+    alt_pools: list[list[TrackedNote]],
+    start:     float,
+    end:       float,
+    min_gap:   float = 2.0,
+) -> list[TrackedNote]:
+    """
+    Fill silent gaps in the primary melody with notes from alternative voice pools.
+
+    For each gap in *primary* that is >= *min_gap* beats long, the alternative
+    pool with the most notes covering that window is merged in.  This lets the
+    soprano track follow the melody even when it shifts to a different MIDI
+    channel (e.g. rhythm channel carries the main theme for one section).
+
+    Parameters
+    ----------
+    primary    Primary soprano TrackedNote list.
+    alt_pools  Other pitched channels to borrow from during gaps.
+    start/end  Section beat boundaries (only notes within [start, end) are used).
+    min_gap    Minimum silence duration in beats before gap-filling is attempted.
+    """
+    if not primary or not alt_pools:
+        return primary
+
+    sorted_primary = sorted(primary, key=lambda n: n.start_beat)
+
+    # Identify silent gaps in the primary melody
+    gaps: list[tuple[float, float]] = []
+    cursor = start
+    for n in sorted_primary:
+        if n.start_beat > end:
+            break
+        gap_end   = n.start_beat
+        gap_start = cursor
+        if gap_end - gap_start >= min_gap:
+            gaps.append((gap_start, gap_end))
+        cursor = max(cursor, n.start_beat + n.duration_beats)
+    # Tail gap
+    if end - cursor >= min_gap:
+        gaps.append((cursor, end))
+
+    if not gaps:
+        return primary
+
+    # For each gap, pick the alt_pool with the most notes in that window
+    extra: list[TrackedNote] = []
+    for gap_start, gap_end in gaps:
+        best_pool:  list[TrackedNote] | None = None
+        best_count: int = 0
+        for pool in alt_pools:
+            count = sum(1 for n in pool if gap_start <= n.start_beat < gap_end)
+            if count > best_count:
+                best_count = count
+                best_pool  = pool
+        if best_pool and best_count > 0:
+            extra.extend(n for n in best_pool if gap_start <= n.start_beat < gap_end)
+
+    if not extra:
+        return primary
+
+    return sorted(primary + extra, key=lambda n: n.start_beat)
+
+
 # ── Top-level assembler ────────────────────────────────────────────────────────
 
 def assemble(
@@ -331,6 +417,10 @@ def assemble(
         if _ach is not None:
             _assigned_fps.add(_channel_fingerprint(_ach))
 
+    # Precompute melody raw notes + velocity for echo detection
+    _melody_raw = data.notes_for_channel(assignment.melody) if assignment.melody is not None else []
+    _melody_vel  = _mean_velocity(_melody_raw)
+
     # Filter inner channels: skip exact duplicates of already-assigned channels
     # or of earlier inner channels.
     _seen_fps: set[tuple] = set(_assigned_fps)
@@ -339,6 +429,16 @@ def assemble(
         fp = _channel_fingerprint(ch)
         if fp and fp in _seen_fps:
             continue  # stereo duplicate — skip
+        # Echo channel suppression: skip channels whose pitch content is nearly
+        # identical to the melody channel but at significantly lower velocity.
+        # These are SNES echo-hardware copies that create "ghost note" artifacts.
+        if _melody_raw:
+            ch_raw = data.notes_for_channel(ch)
+            if ch_raw:
+                sim = _pitch_similarity(ch_raw, _melody_raw)
+                ch_vel = _mean_velocity(ch_raw)
+                if sim > 0.90 and _melody_vel > 0 and ch_vel < _melody_vel * 0.70:
+                    continue  # echo/reverb copy — skip
         _seen_fps.add(fp)
         _deduped_inner.append(ch)
 
@@ -456,9 +556,17 @@ def assemble(
             sec_drums_ch    = assignment.drums
 
         if sec_sop:
-            seq = _extract_pitched_sequence(sec_sop, s_beat, e_beat, tonic_pc, scale_ivs)
-            if seq:
-                voice_seqs["soprano"] = seq
+            # Fill long silences in the soprano from alto/inner voices so that
+            # melody shifts to a different channel are captured correctly.
+            _alt_pools = [p for p in ([sec_alto] + sec_inner) if p]
+            if _alt_pools:
+                sec_sop = _fill_melody_gaps(sec_sop, _alt_pools, s_beat, e_beat)
+            sop_layers = _split_into_layers(sec_sop, lowest_first=False)
+            for li, layer_notes in enumerate(sop_layers):
+                seq = _extract_pitched_sequence(layer_notes, s_beat, e_beat, tonic_pc, scale_ivs)
+                if seq:
+                    vname = "soprano" if li == 0 else f"soprano_layer_{li + 1}"
+                    voice_seqs[vname] = seq
 
         # For polyphonic channels (e.g. piano chords), split into monophonic layers so
         # every chord tone is captured.  Layer 0 keeps the canonical voice name; extra
@@ -504,6 +612,9 @@ def assemble(
         source_ch_map: dict[str, int] = {}
         if sec_melody_ch is not None:
             source_ch_map["soprano"] = sec_melody_ch
+            for vname in voice_seqs:
+                if vname.startswith("soprano_layer_"):
+                    source_ch_map[vname] = sec_melody_ch
         if sec_counter_ch is not None:
             source_ch_map["alto"] = sec_counter_ch
             for vname in voice_seqs:

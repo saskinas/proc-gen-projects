@@ -282,6 +282,10 @@ def remix_to_file(
     """
     Remix and write the result to *out_path*, printing a summary if verbose.
 
+    Output format is determined by the file extension:
+      .mid / .midi  → Standard MIDI file
+      .wav          → 16-bit PCM WAV (requires numpy + mido)
+
     Parameters mirror remix(); out_path is created (including parents) if needed.
     """
     out_path = pathlib.Path(out_path)
@@ -295,9 +299,15 @@ def remix_to_file(
     for fn in transform_fns:
         analysis = fn(analysis)
 
-    adapted = _adapt_base(analysis, base_params)
-    score   = generate_from_analysis(analysis, base_params=adapted, seed=seed)
-    out_path.write_bytes(export.to_midi(score))
+    adapted   = _adapt_base(analysis, base_params)
+    score     = generate_from_analysis(analysis, base_params=adapted, seed=seed)
+    midi_data = export.to_midi(score)
+
+    if out_path.suffix.lower() == ".wav":
+        from procgen.synthesize import midi_to_wav
+        out_path.write_bytes(midi_to_wav(midi_data))
+    else:
+        out_path.write_bytes(midi_data)
 
     if verbose:
         n_notes = sum(len(t.notes) for t in score.tracks)
@@ -308,6 +318,25 @@ def remix_to_file(
             f"{original_bpm}->{analysis.tempo_bpm}bpm  "
             f"{n_notes}n  [{xforms}]"
         )
+
+
+def remix_to_wav(
+    source:    Union[str, pathlib.Path, bytes],
+    out_path:  Union[str, pathlib.Path],
+    *transform_fns: Callable,
+    base_params: dict | None = None,
+    seed: int = 42,
+    verbose: bool = True,
+) -> None:
+    """
+    Remix and write the result as a WAV audio file.
+
+    Equivalent to remix_to_file() with a .wav out_path.
+    Requires numpy and mido to be installed.
+    """
+    out_path = pathlib.Path(out_path).with_suffix(".wav")
+    remix_to_file(source, out_path, *transform_fns,
+                  base_params=base_params, seed=seed, verbose=verbose)
 
 
 # ── Internal helper ───────────────────────────────────────────────────────────
