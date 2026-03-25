@@ -422,13 +422,16 @@ def kaleidoscope(analysis):
 
 def fragmented(analysis):
     """
-    Fragment the first motif to its 3-note opening cell, sequence it in
-    ascending fourths, then assign it as the theme for every section.
+    Fragment the first motif to its opening cell, sequence it with ascending
+    whole-step transpositions, then assign it as the theme for every section.
 
     The original melody is replaced by a newly generated melody built from
     the fragment — bass/inner voices provide harmonic support.  This creates
     an obsessive, minimal development where a tiny motivic cell drives the
     whole piece.
+
+    Uses whole-step (2-semitone) transposition between copies to keep the
+    bridge intervals small and musically smooth.
     """
     a = deepcopy(analysis)
     if not a.motifs:
@@ -437,16 +440,23 @@ def fragmented(analysis):
     m   = a.motifs[mid]
     # Build fragment + sequenced version
     theme_id = mid
-    if len(m.intervals) >= 3:
-        a = fragment_motif(a, mid, start=0, length=3)
+    frag_len = min(3, len(m.intervals)) if len(m.intervals) >= 2 else 0
+    if frag_len >= 2:
+        a = fragment_motif(a, mid, start=0, length=frag_len)
         frag_id = f"{mid}_frag0"
         if frag_id in a.motifs:
-            a = sequence_motif(a, frag_id, n_steps=4, step_semitones=5)
+            # Use whole-step (2 semitones) transposition for smoother bridges.
+            # The bridge interval = step_semitones - total_rise_of_fragment.
+            # Whole steps keep bridges small regardless of fragment contour.
+            a = sequence_motif(a, frag_id, n_steps=3, step_semitones=2)
             seq_id = f"{frag_id}_seq"
             theme_id = seq_id if seq_id in a.motifs else frag_id
-    # Assign the fragment as theme to every section and trigger generation
+    # Assign the fragment as theme and clear voice sequences so the generator
+    # builds entirely fresh melodies from the fragment rather than being
+    # influenced by the original stored sequences.
     a = assign_motif(a, theme_id)
     for sec in a.sections:
+        sec.voice_sequences = {}
         sec.generation_mode = "generate"
     return a
 
