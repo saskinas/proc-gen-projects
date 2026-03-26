@@ -311,14 +311,17 @@ class SectionSpec:
     voice_sequences: dict         = field(default_factory=dict)
 
     # Controls which path generate_from_analysis() takes for this section.
-    # "auto"     — replay voice_sequences if present, else generate (default)
-    # "replay"   — always replay voice_sequences (adapts to harmonic transforms
-    #              via degree encoding; style/texture changes are NOT applied)
-    # "generate" — always run the generative pipeline (set by transforms like
-    #              reharmonize/epic that need to regenerate everything)
-    # "arrange"  — replay soprano/alto/inner voices, regenerate bass+drums in
-    #              the new style (set by apply_style_preset, change_texture,
-    #              change_energy; gives "original melody + new accompaniment")
+    # "auto"      — replay voice_sequences if present, else generate (default)
+    # "replay"    — always replay voice_sequences (adapts to harmonic transforms
+    #               via degree encoding; style/texture changes are NOT applied)
+    # "generate"  — always run the generative pipeline (set by transforms like
+    #               reharmonize/epic that need to regenerate everything)
+    # "arrange"   — replay soprano only, regenerate all other voices in the
+    #               new style (gives "original melody + new accompaniment")
+    # "accompany" — replay ALL original voices, generate additional complementary
+    #               parts on top (countermelody, harmony, bass fill, drums).
+    #               Set extra_params["_accompany_roles"] to control which voices
+    #               to add: ["countermelody","pad","bass_fill","drums","arpeggio"]
     generation_mode: str = "auto"
 
     # ── Serialization ──────────────────────────────────────────────────────

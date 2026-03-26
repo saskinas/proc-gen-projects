@@ -57,6 +57,15 @@ Inspired-by (new compositions from source DNA):
   inspired_by       New melodies over the source's harmonic progressions + motifs.
   inspired_sequel   New harmony + melodies seeded from the source's motifs.
   inspired_contrast Contrasting mood (opposite mode/energy), source motifs as seeds.
+
+Accompaniment (generate music that plays alongside the original):
+  accompany         Add missing voices (counter, bass, drums) around the original.
+  duet              Add a countermelody voice — a duet partner for the melody.
+  call_response     Re-arrange with responsive counterlines in melody gaps.
+  harmonize         Add parallel harmony voices (3rds, 6ths) and supportive bass.
+  backing_band      Full rhythm section: bass + drums + chords + countermelody.
+  jazz_combo        Jazz trio accompaniment: walking bass, swing drums, comping.
+  orchestral_accompany  Orchestral pad: strings, arpeggiated inner voices, deep bass.
 """
 
 from __future__ import annotations
@@ -608,115 +617,370 @@ def grooved(analysis):
 
 
 
-# ── "Inspired by" presets ───────────────────────────────────────────────────
+# ── Musical DNA extraction ──────────────────────────────────────────────────
 #
-# Unlike remixes (which transform the original voices), these generate
-# entirely NEW compositions using the source's musical DNA — motifs,
-# harmonic progressions, key/mode, energy arc, and structural form.
-# The result sounds like it belongs in the same soundtrack without using
-# any of the original notes.
+# These helpers analyse source voice_sequences to extract rich musical
+# characteristics — rhythmic patterns, melodic shape, step/leap ratio,
+# ornament density, register, and energy contour.  The "inspired by"
+# presets inject these characteristics into the generator parameters so
+# the generated output *sounds like* it belongs with the original.
 
 
-def _estimate_texture_from_voices(section) -> TextureHints:
+def _extract_musical_dna(section, analysis=None) -> dict:
     """
-    Infer appropriate TextureHints from the source's voice_sequences.
+    Extract rich musical characteristics from a section's voice sequences.
 
-    Examines the original voices to choose generation parameters that
-    produce a similar *feel* (density, bass style, voice count) without
-    copying any actual notes.
+    Parameters
+    ----------
+    section   SectionSpec with voice_sequences to analyse.
+    analysis  Optional MusicalAnalysis — provides fallback key/mode when the
+              section doesn't carry its own key/mode override in extra_params.
+
+    Returns a dict of generation-parameter-ready values:
+      rhythmic_density, rhythmic_regularity, step_leap_ratio,
+      sequence_probability, use_ornaments, melodic_direction,
+      bass_type, inner_voice_style, num_voices, counterpoint,
+      drum_style, drum_intensity, swing,
+      energy_level, energy_arc, instruments
     """
     vs = section.voice_sequences
-    n_voices = min(4, max(1, len([
-        k for k in vs if k not in ("drums",) and not k.endswith("_layer_2")
-        and not k.endswith("_layer_3") and not k.endswith("_layer_4")
-    ])))
+    dna: dict = {}
 
-    # Estimate rhythmic density from the lead voice
+    # ── Voice count ──
+    primary_voices = [
+        k for k in vs if k not in ("drums",)
+        and not k.endswith("_layer_2")
+        and not k.endswith("_layer_3")
+        and not k.endswith("_layer_4")
+    ]
+    dna["num_voices"] = min(4, max(1, len(primary_voices)))
+
+    # ── Lead melody analysis ──
     _, lead_seq, lead_pitched = _melodic_lead(section)
     if lead_pitched:
+        durations = [ev.get("duration", 0.5) for ev in lead_pitched]
         total_dur = sum(ev.get("duration", 0.5) for ev in lead_seq)
         notes_per_beat = len(lead_pitched) / max(total_dur, 1.0)
-        # Map notes/beat to density: 0.5 n/b → 0.3, 2 n/b → 0.6, 4 n/b → 0.8
-        density = min(0.9, max(0.15, 0.1 + notes_per_beat * 0.18))
-    else:
-        density = 0.45
 
-    # Estimate bass style from bass voice (if present)
+        # Rhythmic density — from actual note rate
+        dna["rhythmic_density"] = round(
+            min(0.9, max(0.15, 0.1 + notes_per_beat * 0.18)), 2
+        )
+
+        # Rhythmic regularity — from duration variance
+        # Low variance = metronomic, high variance = syncopated
+        if len(durations) >= 3:
+            mean_dur = sum(durations) / len(durations)
+            variance = sum((d - mean_dur) ** 2 for d in durations) / len(durations)
+            cv = (variance ** 0.5) / max(mean_dur, 0.01)  # coefficient of variation
+            # CV near 0 = regular, CV > 1 = very irregular
+            dna["rhythmic_regularity"] = round(max(0.1, min(0.95, 1.0 - cv * 0.7)), 2)
+        else:
+            dna["rhythmic_regularity"] = 0.6
+
+        # Step/leap ratio — from actual intervals
+        from music_generator import SCALE_INTERVALS, ROOT_TO_PC
+        _fallback_key = analysis.key if analysis else "C"
+        _fallback_mode = analysis.mode if analysis else "major"
+        sec_key = section.extra_params.get("key", _fallback_key)
+        sec_mode = section.extra_params.get("mode", _fallback_mode)
+        tpc = ROOT_TO_PC.get(sec_key, 0)
+        scale_ivs = SCALE_INTERVALS.get(sec_mode, SCALE_INTERVALS["major"])
+
+        midi_pitches = []
+        for ev in lead_pitched:
+            deg = ev.get("degree", 1)
+            if deg == "rest" or deg == 0:
+                continue
+            octave = ev.get("octave", 4)
+            alter = ev.get("alter", 0)
+            try:
+                iv = scale_ivs[int(deg) - 1]
+            except (IndexError, ValueError):
+                iv = 0
+            midi_pitches.append((octave + 1) * 12 + (tpc + iv + alter) % 12)
+
+        if len(midi_pitches) >= 2:
+            intervals = [abs(midi_pitches[i + 1] - midi_pitches[i])
+                         for i in range(len(midi_pitches) - 1)]
+            steps = sum(1 for iv in intervals if iv <= 2)
+            dna["step_leap_ratio"] = round(steps / max(len(intervals), 1), 2)
+
+            # Sequence probability — detect repeated interval patterns
+            if len(intervals) >= 4:
+                # Check for 2-note and 3-note patterns that repeat
+                pattern_matches = 0
+                for size in (2, 3):
+                    for i in range(len(intervals) - size * 2 + 1):
+                        pat = intervals[i:i + size]
+                        nxt = intervals[i + size:i + size * 2]
+                        if len(nxt) == size and all(
+                            abs(a - b) <= 1 for a, b in zip(pat, nxt)
+                        ):
+                            pattern_matches += 1
+                dna["sequence_probability"] = round(
+                    min(0.8, max(0.1, pattern_matches / max(len(intervals), 1) * 3)), 2
+                )
+            else:
+                dna["sequence_probability"] = 0.3
+
+            # Melodic direction — from overall pitch contour
+            if len(midi_pitches) >= 4:
+                mid_idx = len(midi_pitches) // 2
+                first_half_avg = sum(midi_pitches[:mid_idx]) / mid_idx
+                second_half_avg = sum(midi_pitches[mid_idx:]) / (len(midi_pitches) - mid_idx)
+                quarter_idx = len(midi_pitches) // 4
+                middle_avg = sum(midi_pitches[quarter_idx:mid_idx + quarter_idx]) / max(
+                    mid_idx, 1)
+                overall_avg = sum(midi_pitches) / len(midi_pitches)
+
+                if middle_avg > overall_avg + 1:
+                    dna["melodic_direction"] = "arch"
+                elif second_half_avg > first_half_avg + 2:
+                    dna["melodic_direction"] = "ascending"
+                elif first_half_avg > second_half_avg + 2:
+                    dna["melodic_direction"] = "descending"
+                else:
+                    dna["melodic_direction"] = "arch"
+        else:
+            dna["step_leap_ratio"] = 0.65
+            dna["sequence_probability"] = 0.3
+            dna["melodic_direction"] = "arch"
+
+        # Ornament detection — short note pairs (grace notes, mordents)
+        short_pairs = 0
+        for i in range(len(durations) - 1):
+            if durations[i] < 0.2 and durations[i + 1] < 0.2:
+                short_pairs += 1
+        dna["use_ornaments"] = short_pairs >= 2
+
+    else:
+        dna["rhythmic_density"] = 0.45
+        dna["rhythmic_regularity"] = 0.6
+        dna["step_leap_ratio"] = 0.65
+        dna["sequence_probability"] = 0.3
+        dna["melodic_direction"] = "arch"
+        dna["use_ornaments"] = False
+
+    # ── Bass analysis ──
     bass_seq = vs.get("bass", [])
     bass_pitched = [ev for ev in bass_seq if ev.get("degree") != "rest"]
     if bass_pitched:
-        avg_bass_dur = sum(ev.get("duration", 0.5) for ev in bass_pitched) / len(bass_pitched)
+        bass_durs = [ev.get("duration", 0.5) for ev in bass_pitched]
+        avg_bass_dur = sum(bass_durs) / len(bass_durs)
         if avg_bass_dur > 1.5:
-            bass_type = "sustained"
+            dna["bass_type"] = "sustained"
         elif avg_bass_dur > 0.8:
-            bass_type = "walking"
+            dna["bass_type"] = "walking"
         elif avg_bass_dur > 0.4:
-            bass_type = "arpeggiated"
+            dna["bass_type"] = "arpeggiated"
         else:
-            bass_type = "rock"
+            dna["bass_type"] = "rock"
     else:
-        bass_type = "sustained"
+        dna["bass_type"] = "sustained"
 
-    # Check if source has drums
-    drum_style = "rock" if "drums" in vs else "none"
+    # ── Inner voice analysis ──
+    inner_keys = [k for k in vs if k.startswith("inner_") or k == "alto"]
+    if inner_keys:
+        inner_all = []
+        for k in inner_keys:
+            inner_all.extend(ev for ev in vs[k] if ev.get("degree") != "rest")
+        if inner_all:
+            inner_durs = [ev.get("duration", 0.5) for ev in inner_all]
+            avg_inner = sum(inner_durs) / len(inner_durs)
+            if avg_inner < 0.2:
+                dna["inner_voice_style"] = "arpeggiated"
+            elif avg_inner < 0.5:
+                dna["inner_voice_style"] = "running_sixteenths"
+            elif avg_inner > 1.0:
+                dna["inner_voice_style"] = "block_chords"
+            else:
+                dna["inner_voice_style"] = "countermelody"
+        else:
+            dna["inner_voice_style"] = "block_chords"
+    else:
+        dna["inner_voice_style"] = "block_chords"
 
-    return TextureHints(
-        num_voices=n_voices,
-        rhythmic_density=round(density, 2),
-        bass_type=bass_type,
-        drum_style=drum_style,
-        drum_intensity=0.6,
-        counterpoint=0.4 if n_voices >= 3 else 0.2,
-    )
+    # ── Drums ──
+    drum_seq = vs.get("drums", [])
+    if drum_seq:
+        drum_pitched = [ev for ev in drum_seq if ev.get("pitch", "rest") != "rest"
+                        and ev.get("degree") != "rest"]
+        if drum_pitched:
+            drum_dur = sum(ev.get("duration", 0.5) for ev in drum_seq)
+            hits_per_beat = len(drum_pitched) / max(drum_dur, 1.0)
+            dna["drum_style"] = "rock"
+            dna["drum_intensity"] = round(min(0.9, max(0.2, hits_per_beat * 0.25)), 2)
+        else:
+            dna["drum_style"] = "rock"
+            dna["drum_intensity"] = 0.4
+    else:
+        dna["drum_style"] = "none"
+        dna["drum_intensity"] = 0.0
 
+    # ── Swing detection ──
+    if lead_pitched and len(lead_pitched) >= 6:
+        durations = [ev.get("duration", 0.5) for ev in lead_pitched]
+        # Detect swing: alternating long-short pairs
+        swing_pairs = 0
+        total_pairs = 0
+        for i in range(0, len(durations) - 1, 2):
+            total_pairs += 1
+            ratio = durations[i] / max(durations[i + 1], 0.01)
+            if 1.3 < ratio < 2.5:  # swing ratio range
+                swing_pairs += 1
+        if total_pairs >= 3 and swing_pairs / total_pairs > 0.4:
+            dna["swing"] = 0.55
+        else:
+            dna["swing"] = 0.0
+    else:
+        dna["swing"] = 0.0
 
-def _estimate_energy(section) -> EnergyProfile:
-    """Estimate energy profile from the source section's voice sequences."""
-    vs = section.voice_sequences
-    if not vs:
-        return EnergyProfile(level=0.5, arc="arch")
-
-    # Use total note count and average velocity as energy proxies
+    # ── Energy from velocity ──
     all_pitched = []
     for role, seq in vs.items():
         if role == "drums":
             continue
         all_pitched.extend(ev for ev in seq if ev.get("degree") != "rest")
+    if all_pitched:
+        velocities = [ev.get("velocity", 64) for ev in all_pitched]
+        avg_vel = sum(velocities) / len(velocities)
+        dna["energy_level"] = round(min(0.95, max(0.15, (avg_vel - 40) / 90)), 2)
 
-    if not all_pitched:
-        return EnergyProfile(level=0.5, arc="arch")
+        # Detect energy arc from velocity trend across the section
+        if len(velocities) >= 8:
+            q = len(velocities) // 4
+            v1 = sum(velocities[:q]) / q
+            v2 = sum(velocities[q:2 * q]) / q
+            v3 = sum(velocities[2 * q:3 * q]) / q
+            v4 = sum(velocities[3 * q:]) / max(len(velocities) - 3 * q, 1)
 
-    avg_vel = sum(ev.get("velocity", 64) for ev in all_pitched) / len(all_pitched)
-    # Map velocity (40-110) to energy (0.2-0.9)
-    energy = min(0.95, max(0.15, (avg_vel - 40) / 90))
+            if v2 > v1 + 3 and v3 > v2 + 3:
+                dna["energy_arc"] = "ascending"
+            elif v2 < v1 - 3 and v3 < v2 - 3:
+                dna["energy_arc"] = "descending"
+            elif v2 > v1 and v3 > v4:
+                dna["energy_arc"] = "arch"
+            else:
+                dna["energy_arc"] = "arch"
+        else:
+            dna["energy_arc"] = "arch"
+    else:
+        dna["energy_level"] = 0.5
+        dna["energy_arc"] = "arch"
 
-    return EnergyProfile(level=round(energy, 2), arc="arch")
+    # ── Counterpoint from voice independence ──
+    if dna["num_voices"] >= 3:
+        dna["counterpoint"] = 0.5
+    elif dna["num_voices"] == 2:
+        dna["counterpoint"] = 0.3
+    else:
+        dna["counterpoint"] = 0.1
+
+    # ── Instruments from source programs ──
+    src_progs = section.extra_params.get("_source_programs", {})
+    if src_progs:
+        dna["instruments"] = [f"gm_prog_{p}" for p in src_progs.values()
+                              if not isinstance(p, str)]
+
+    return dna
+
+
+def _apply_dna_to_section(sec, dna: dict, *, clear_harmony: bool = False):
+    """Apply extracted musical DNA to a section for generation."""
+    sec.texture = TextureHints(
+        num_voices=dna.get("num_voices", 3),
+        rhythmic_density=dna.get("rhythmic_density", 0.5),
+        bass_type=dna.get("bass_type", "sustained"),
+        inner_voice_style=dna.get("inner_voice_style", "block_chords"),
+        drum_style=dna.get("drum_style", "none"),
+        drum_intensity=dna.get("drum_intensity", 0.5),
+        counterpoint=dna.get("counterpoint", 0.3),
+        swing=dna.get("swing", 0.0),
+        melodic_direction=dna.get("melodic_direction", "arch"),
+        use_ornaments=dna.get("use_ornaments", False),
+        step_leap_ratio=dna.get("step_leap_ratio", 0.65),
+    )
+    sec.energy = EnergyProfile(
+        level=dna.get("energy_level", 0.5),
+        arc=dna.get("energy_arc", "arch"),
+    )
+    sec.extra_params["rhythmic_regularity"] = dna.get("rhythmic_regularity", 0.6)
+    sec.extra_params["sequence_probability"] = dna.get("sequence_probability", 0.3)
+    # Force motif theme so the generator always applies the motif, not just sometimes
+    sec.extra_params["melodic_theme"] = "motif"
+
+    if dna.get("instruments"):
+        sec.extra_params["instruments"] = dna["instruments"]
+
+    if clear_harmony:
+        sec.harmonic_plan = []
+
+    sec.voice_sequences = {}
+    sec.generation_mode = "generate"
+
+
+def _estimate_texture_from_voices(section) -> TextureHints:
+    """
+    Infer appropriate TextureHints from the source's voice_sequences.
+    Thin wrapper around _extract_musical_dna for backward compatibility.
+    """
+    dna = _extract_musical_dna(section, analysis=None)
+    return TextureHints(
+        num_voices=dna.get("num_voices", 3),
+        rhythmic_density=dna.get("rhythmic_density", 0.5),
+        bass_type=dna.get("bass_type", "sustained"),
+        drum_style=dna.get("drum_style", "none"),
+        drum_intensity=dna.get("drum_intensity", 0.5),
+        counterpoint=dna.get("counterpoint", 0.3),
+    )
+
+
+def _estimate_energy(section) -> EnergyProfile:
+    """Estimate energy profile from the source section's voice sequences."""
+    dna = _extract_musical_dna(section, analysis=None)
+    return EnergyProfile(
+        level=dna.get("energy_level", 0.5),
+        arc=dna.get("energy_arc", "arch"),
+    )
 
 
 def inspired_by(analysis):
     """
     Generate new melodies over the source's harmonic progressions and motifs.
 
-    Preserves: key, mode, tempo, time signature, section structure,
-    harmonic plans (chord progressions), motifs, and energy profile.
-    Generates: entirely new melodies, countermelodies, bass lines, and drums.
+    Extracts the full musical DNA from the source — rhythmic density,
+    step/leap ratio, melodic direction, ornament usage, bass style,
+    inner voice texture, drum intensity, swing, and energy arc — then
+    regenerates all voices using these parameters.  The harmonic
+    progressions and motifs are preserved, so the result sounds like
+    an alternate version that belongs in the same soundtrack.
 
-    The result sounds like an alternate version of the source — same harmonic
-    language and motivic identity, but fresh melodic content.
+    Preserves: key, mode, tempo, time signature, section structure,
+    harmonic plans, motifs.
+    Transfers: rhythmic feel, melodic character, texture, energy.
+    Generates: new melodies, countermelodies, bass lines, drums.
     """
     a = deepcopy(analysis)
 
-    for sec in a.sections:
-        # Infer generation texture from original voice layout
-        sec.texture = _estimate_texture_from_voices(sec)
-        sec.energy = _estimate_energy(sec)
+    # Extract DNA from each section BEFORE clearing voices
+    dna_per_section = [_extract_musical_dna(sec, analysis=a) for sec in a.sections]
 
-        # Keep harmonic plan (chord progressions) — this is the DNA
-        # Keep motif_id — the generator will build melodies from it
-
-        # Clear voice sequences so the generator creates new ones
-        sec.voice_sequences = {}
-        sec.generation_mode = "generate"
+    for sec, dna in zip(a.sections, dna_per_section):
+        _apply_dna_to_section(sec, dna, clear_harmony=False)
+        # Vary motif development across sections for variety
+        roles = [s.role for s in a.sections]
+        sec_idx = a.sections.index(sec)
+        if sec.role == "intro" or sec_idx == 0:
+            sec.extra_params["melodic_theme_dev"] = "build"
+        elif sec.role == "chorus":
+            sec.extra_params["melodic_theme_dev"] = "flat"
+        elif sec.role == "bridge":
+            sec.extra_params["melodic_theme_dev"] = "fragment"
+        elif sec.role == "outro" or sec_idx == len(a.sections) - 1:
+            sec.extra_params["melodic_theme_dev"] = "fragment"
+        else:
+            sec.extra_params["melodic_theme_dev"] = "sequence"
 
     return a
 
@@ -725,48 +989,49 @@ def inspired_sequel(analysis):
     """
     New harmony AND melodies seeded from the source's motifs.
 
-    Preserves: key, mode, tempo, time signature, section structure, motifs.
-    Regenerates: harmonic plans AND all voices.
+    Transfers the complete musical DNA (rhythm, texture, energy, melodic
+    character) but regenerates the harmonic progressions too.  The motifs
+    provide thematic continuity — the generator develops the same motivic
+    cells in each phrase — but the chord changes underneath are fresh.
 
-    The motifs provide thematic continuity — the melody will develop the
-    same motivic cells — but the harmonic support is entirely fresh.
-    This creates a "sequel" that shares thematic DNA but charts its own
-    harmonic course.
+    The harmonic parameters are tuned to produce interesting progressions:
+    moderate complexity, strong circle-of-fifths motion, moderate harmonic
+    rhythm.  The result sounds like a sequel — same world, new chapter.
     """
     a = deepcopy(analysis)
 
-    for sec in a.sections:
-        sec.texture = _estimate_texture_from_voices(sec)
-        sec.energy = _estimate_energy(sec)
+    dna_per_section = [_extract_musical_dna(sec, analysis=a) for sec in a.sections]
 
-        # Clear harmonic plan so the generator builds fresh harmony
-        sec.harmonic_plan = []
-
-        # Keep motif_id for thematic continuity
-        # Clear voice sequences
-        sec.voice_sequences = {}
-        sec.generation_mode = "generate"
-
-    # Slightly vary the harmonic parameters to differentiate from source
-    for sec in a.sections:
+    for sec, dna in zip(a.sections, dna_per_section):
+        _apply_dna_to_section(sec, dna, clear_harmony=True)
         sec.extra_params["chord_complexity"] = 0.55
-        sec.extra_params["circle_of_fifths"] = 0.6
-        sec.extra_params["harmonic_rhythm"] = 0.5
+        sec.extra_params["circle_of_fifths"] = 0.65
+        sec.extra_params["harmonic_rhythm"] = min(
+            0.7, dna.get("rhythmic_density", 0.5) * 0.9
+        )
+        # Vary development style per section
+        sec_idx = a.sections.index(sec)
+        if sec_idx == 0:
+            sec.extra_params["melodic_theme_dev"] = "build"
+        elif sec.role == "chorus":
+            sec.extra_params["melodic_theme_dev"] = "flat"
+        else:
+            sec.extra_params["melodic_theme_dev"] = "sequence"
 
     return a
 
 
 def inspired_contrast(analysis):
     """
-    Contrasting mood from the source — opposite mode and inverted energy.
+    Contrasting mood — opposite mode, inverted energy, reflected motifs.
 
-    Major → harmonic minor, minor → major. High-energy sections become
-    calm, calm sections become intense.  Motifs are kept but inverted,
-    creating a "shadow" version of the original.
+    Extracts the full musical DNA from the source but inverts the emotional
+    character: major → harmonic minor, high energy → calm, ascending →
+    descending.  Motif intervals are inverted (ascending phrases become
+    descending), creating a "shadow" version.
 
-    Preserves: tempo, time signature, section count, motif identity.
-    Transforms: key/mode, energy profile, motif intervals.
-    Generates: entirely new harmonic plans, melodies, and voices.
+    The rhythmic DNA (density, regularity, swing, bass style) is preserved
+    so the contrast feels like it belongs to the same piece structurally.
     """
     a = deepcopy(analysis)
 
@@ -793,29 +1058,215 @@ def inspired_contrast(analysis):
         motif.retrograde_inversion = list(reversed(motif.inverted))
         motif.contour = [-c for c in motif.contour]
 
-    for sec in a.sections:
-        sec.texture = _estimate_texture_from_voices(sec)
-        orig_energy = _estimate_energy(sec)
+    dna_per_section = [_extract_musical_dna(sec, analysis=a) for sec in a.sections]
 
-        # Invert energy: high → low, low → high
-        inverted_level = 1.0 - orig_energy.level
-        inverted_level = max(0.2, min(0.9, inverted_level))
+    for sec, dna in zip(a.sections, dna_per_section):
+        # Invert energy
+        dna["energy_level"] = round(max(0.2, min(0.9, 1.0 - dna["energy_level"])), 2)
         arc_map = {"ascending": "descending", "descending": "ascending",
                    "arch": "arch", "flat": "flat"}
-        sec.energy = EnergyProfile(
-            level=round(inverted_level, 2),
-            arc=arc_map.get(orig_energy.arc, "arch"),
+        dna["energy_arc"] = arc_map.get(dna.get("energy_arc", "arch"), "arch")
+
+        # Invert melodic direction
+        dir_map = {"ascending": "descending", "descending": "ascending",
+                   "arch": "arch", "free": "free"}
+        dna["melodic_direction"] = dir_map.get(
+            dna.get("melodic_direction", "arch"), "arch"
         )
 
-        # Clear everything for full generation
-        sec.harmonic_plan = []
-        sec.voice_sequences = {}
-        sec.generation_mode = "generate"
-
-        # Encourage contrasting texture
+        _apply_dna_to_section(sec, dna, clear_harmony=True)
         sec.extra_params["chord_complexity"] = 0.65
         sec.extra_params["modal_mixture"] = 0.3
+        sec.extra_params["melodic_theme_dev"] = "fragment"
 
+    return a
+
+
+# ── Accompaniment presets ─────────────────────────────────────────────────────
+
+
+def accompany(analysis):
+    """
+    Generate complementary accompaniment that plays alongside the original.
+
+    Keeps ALL original voices intact and layers newly-generated parts on top:
+    countermelody, harmony pad, bass fill, and/or drums — whichever the
+    original is missing.  Generated parts use the source's harmonic plan
+    so they fit perfectly, and are mixed at lower velocity so they sit
+    behind the original.
+
+    Works with both MIDI and audio-transcribed sources.
+    """
+    a = deepcopy(analysis)
+    for sec in a.sections:
+        sec.generation_mode = "accompany"
+        # Let accompany_section auto-detect what to add
+    return a
+
+
+def duet(analysis):
+    """
+    Generate a countermelody voice that creates a duet with the original.
+
+    Replays all original voices and adds one countermelody that harmonises
+    with and responds to the source melody.  The countermelody uses the
+    source's harmonic plan and motifs, creating a voice that sounds like
+    it belongs with the original.
+
+    High counterpoint and voice independence settings produce a melodically
+    independent duet partner, not just block-chord harmony.
+    """
+    a = deepcopy(analysis)
+    for sec in a.sections:
+        sec.generation_mode = "accompany"
+        sec.extra_params["_accompany_roles"] = ["countermelody"]
+        # High counterpoint + independence for a true duet partner
+        sec.extra_params["counterpoint"] = 0.75
+        sec.extra_params["voice_independence"] = 0.8
+        sec.extra_params["inner_voice_style"] = "countermelody"
+        sec.extra_params["step_leap_ratio"] = 0.55  # allow leaps for melodic interest
+        sec.extra_params["use_ornaments"] = True
+        sec.extra_params["sequence_probability"] = 0.4
+    return a
+
+
+def call_response(analysis):
+    """
+    Generate response phrases that fill gaps in the original melody.
+
+    Keeps the original melody and generates answering phrases using the
+    source's motifs.  The response voice enters during rests and sustains
+    in the lead melody, creating a conversational call-and-response texture.
+
+    Uses arrange mode: the soprano (melody) is preserved; all other voices
+    are regenerated with high voice independence and counterpoint settings
+    to create responsive counterlines.
+    """
+    a = deepcopy(analysis)
+    for sec in a.sections:
+        sec.generation_mode = "arrange"
+        # High voice independence so the generated voices feel like "responses"
+        sec.extra_params["counterpoint"] = 0.75
+        sec.extra_params["voice_independence"] = 0.8
+        sec.extra_params["inner_voice_style"] = "countermelody"
+        # Slightly lower density so responses don't crowd the melody
+        # _lead_density returns notes/beat; map to 0.0-1.0 range for rhythmic_density
+        raw_density = _lead_density(sec)
+        mapped_density = min(0.85, max(0.2, 0.1 + raw_density * 0.18))
+        sec.texture = TextureHints(
+            rhythmic_density=mapped_density * 0.8,
+            num_voices=min(4, (sec.texture.num_voices or 3)),
+            counterpoint=0.75,
+        )
+    return a
+
+
+def harmonize(analysis):
+    """
+    Add harmony voices (parallel 3rds and 6ths) to the original melody.
+
+    Takes the soprano melody and generates closely-spaced harmony voices
+    that follow the melody in diatonic parallel motion.  Also adds a
+    supportive bass line and optional drums.
+
+    The result sounds like a choir or ensemble arrangement of the melody.
+    """
+    a = deepcopy(analysis)
+    for sec in a.sections:
+        sec.generation_mode = "accompany"
+        sec.extra_params["_accompany_roles"] = ["countermelody", "pad"]
+        # Block chords create parallel harmony feel
+        sec.extra_params["inner_voice_style"] = "block_chords"
+        sec.extra_params["counterpoint"] = 0.2  # low = parallel motion
+        sec.extra_params["voice_independence"] = 0.3
+        sec.extra_params["step_leap_ratio"] = 0.85  # mostly stepwise = parallel
+    return a
+
+
+def backing_band(analysis):
+    """
+    Generate a full backing band: bass, drums, chords, and countermelody.
+
+    Keeps the original melody and generates a complete rhythm section and
+    harmony instruments around it.  Uses the source's harmonic progressions
+    and energy profile to create a backing track that fits naturally.
+
+    Ideal for creating karaoke-style accompaniment or adding a band to
+    a solo melody.
+    """
+    a = deepcopy(analysis)
+    for sec in a.sections:
+        sec.generation_mode = "accompany"
+        sec.extra_params["_accompany_roles"] = [
+            "countermelody", "pad", "bass_fill", "drums",
+        ]
+        # Full band texture
+        sec.extra_params["num_voices"] = 4
+        sec.extra_params["bass_type"] = "walking"
+        if not sec.texture.drum_style or sec.texture.drum_style == "none":
+            sec.texture = TextureHints(
+                drum_style="rock",
+                drum_intensity=0.5,
+                num_voices=4,
+                bass_type="walking",
+            )
+    return a
+
+
+def jazz_combo(analysis):
+    """
+    Jazz combo accompaniment: walking bass + jazz drums + comping chords.
+
+    Preserves the original melody and layers a jazz rhythm section underneath.
+    Walking bass, brush/swing drums, and block-chord comping create a classic
+    jazz trio/quartet feel behind any melody.
+    """
+    a = deepcopy(analysis)
+    for sec in a.sections:
+        sec.generation_mode = "accompany"
+        sec.extra_params["_accompany_roles"] = [
+            "countermelody", "bass_fill", "drums",
+        ]
+        sec.extra_params["bass_type"] = "walking"
+        sec.extra_params["swing"] = 0.6
+        sec.extra_params["inner_voice_style"] = "block_chords"
+        sec.extra_params["chord_complexity"] = 0.7
+        sec.extra_params["harmonic_rhythm"] = 0.6
+        sec.texture = TextureHints(
+            drum_style="jazz",
+            drum_intensity=0.4,
+            swing=0.6,
+            num_voices=3,
+        )
+    a = tempo_scale(a, 0.92)
+    return a
+
+
+def orchestral_accompany(analysis):
+    """
+    Orchestral accompaniment: strings pad, arpeggiated inner voices, bass.
+
+    Wraps the original melody in a lush orchestral texture.  String pads
+    provide sustained harmony, arpeggiated inner voices add movement,
+    and a deep bass provides the foundation.
+
+    The generated parts use string and brass instruments for a cinematic feel.
+    """
+    a = deepcopy(analysis)
+    for sec in a.sections:
+        sec.generation_mode = "accompany"
+        sec.extra_params["_accompany_roles"] = [
+            "countermelody", "pad", "bass_fill",
+        ]
+        sec.extra_params["instruments"] = ["strings"]
+        sec.extra_params["inner_voice_style"] = "arpeggiated"
+        sec.extra_params["num_voices"] = 4
+        sec.extra_params["counterpoint"] = 0.5
+        sec.extra_params["bass_type"] = "sustained"
+        sec.energy = EnergyProfile(
+            level=min(0.85, sec.energy.level * 1.2),
+            arc=sec.energy.arc,
+        )
     return a
 
 
@@ -841,9 +1292,16 @@ PRESETS: dict[str, callable] = {
     "reimagined":     reimagined,
     "evolved":        evolved,
     "grooved":          grooved,
-    "inspired_by":      inspired_by,
-    "inspired_sequel":  inspired_sequel,
-    "inspired_contrast": inspired_contrast,
+    "inspired_by":         inspired_by,
+    "inspired_sequel":     inspired_sequel,
+    "inspired_contrast":   inspired_contrast,
+    "accompany":           accompany,
+    "duet":                duet,
+    "call_response":       call_response,
+    "harmonize":           harmonize,
+    "backing_band":        backing_band,
+    "jazz_combo":          jazz_combo,
+    "orchestral_accompany": orchestral_accompany,
 }
 
 # Convenience aliases matching common import patterns
@@ -871,3 +1329,10 @@ GROOVED           = grooved
 INSPIRED_BY       = inspired_by
 INSPIRED_SEQUEL   = inspired_sequel
 INSPIRED_CONTRAST = inspired_contrast
+ACCOMPANY              = accompany
+DUET                   = duet
+CALL_RESPONSE          = call_response
+HARMONIZE              = harmonize
+BACKING_BAND           = backing_band
+JAZZ_COMBO             = jazz_combo
+ORCHESTRAL_ACCOMPANY   = orchestral_accompany

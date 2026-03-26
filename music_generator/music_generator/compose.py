@@ -699,6 +699,154 @@ def arrange_section(
     )
 
 
+# ── Accompany mode ───────────────────────────────────────────────────────────
+
+def accompany_section(
+    section:     "SectionSpec",
+    analysis:    "MusicalAnalysis",
+    base_params: dict,
+    seed:        int = 0,
+    *,
+    add_roles:   list[str] | None = None,
+):
+    """
+    Keep ALL original voices and generate additional complementary parts.
+
+    Unlike arrange_section (which replaces everything except soprano),
+    accompany_section replays the entire original and layers newly-generated
+    voices on top.  The generated voices use the source's harmonic plan
+    so they fit harmonically.
+
+    Parameters
+    ----------
+    section      Section with voice_sequences to replay.
+    analysis     Full analysis (key, mode, motifs, etc.)
+    base_params  Generation parameters.
+    seed         RNG seed.
+    add_roles    Which additional roles to generate.  Default: determines
+                 automatically based on what's missing from the original.
+                 Options: "countermelody", "harmony", "bass_fill", "drums",
+                 "pad", "arpeggio".
+
+    Returns
+    -------
+    MusicScore with original voices + generated accompaniment.
+    """
+    from copy import deepcopy
+    from music_generator import MusicScore
+    from music_generator.ir import EnergyProfile
+
+    _ensure_paths()
+
+    # ── 1. Replay all original voices ─────────────────────────────────────────
+    original = replay_section(section, analysis, base_params)
+    if original is None:
+        return generate_section(section, analysis, base_params, seed=seed)
+
+    orig_roles = set(original.metadata.get("voices", []))
+
+    # ── 2. Decide what to add ─────────────────────────────────────────────────
+    if add_roles is None:
+        add_roles = []
+        # Add countermelody if the original doesn't have one
+        if "alto" not in orig_roles and "countermelody" not in orig_roles:
+            add_roles.append("countermelody")
+        # Add harmony pad if few inner voices
+        inner_count = sum(1 for r in orig_roles if r.startswith("inner_"))
+        if inner_count < 2:
+            add_roles.append("pad")
+        # Add bass fill if bass is sparse or missing
+        if "bass" not in orig_roles:
+            add_roles.append("bass_fill")
+        # Add drums if missing
+        if "drums" not in orig_roles:
+            add_roles.append("drums")
+        if not add_roles:
+            add_roles = ["countermelody"]  # always add at least something
+
+    # ── 3. Generate complementary voices ──────────────────────────────────────
+    # Build a generation section that inherits the harmonic plan from the
+    # original but only generates the missing/requested voices.
+    gen_sec = deepcopy(section)
+    gen_sec.voice_sequences = {}
+    gen_sec.generation_mode = "generate"
+
+    # Configure texture for the accompaniment style
+    accomp_params = dict(base_params)
+
+    if "countermelody" in add_roles:
+        accomp_params["inner_voice_style"] = "countermelody"
+        accomp_params["num_voices"] = max(accomp_params.get("num_voices", 2), 3)
+    if "pad" in add_roles:
+        accomp_params["inner_voice_style"] = "block_chords"
+    if "arpeggio" in add_roles:
+        accomp_params["inner_voice_style"] = "arpeggiated"
+    if "bass_fill" in add_roles:
+        accomp_params["bass_type"] = "walking"
+    if "drums" in add_roles:
+        if not accomp_params.get("drum_style") or accomp_params["drum_style"] == "none":
+            accomp_params["drum_style"] = "rock"
+            accomp_params["drum_intensity"] = 0.4
+
+    # Lower the energy of generated parts so they don't overpower the original
+    gen_sec.energy = EnergyProfile(
+        level=max(0.2, section.energy.level * 0.7),
+        arc=section.energy.arc,
+    )
+
+    generated = generate_section(gen_sec, analysis, accomp_params, seed=seed)
+
+    # ── 4. Merge: all original + selected generated voices ────────────────────
+    gen_voices = generated.metadata.get("voices",
+                                        [t.instrument for t in generated.tracks])
+    gen_map = {
+        role: generated.tracks[i]
+        for i, role in enumerate(gen_voices)
+        if i < len(generated.tracks)
+    }
+
+    merged_tracks = list(original.tracks)
+    merged_roles  = list(original.metadata.get("voices", []))
+
+    # Map requested roles to generated track roles
+    _ADD_TO_GEN = {
+        "countermelody": ["alto"],
+        "harmony":       ["alto"],
+        "pad":           ["alto"],
+        "arpeggio":      ["alto"],
+        "bass_fill":     ["bass"],
+        "drums":         ["drums"],
+    }
+
+    added = set()
+    for req in add_roles:
+        for gen_role in _ADD_TO_GEN.get(req, [req]):
+            if gen_role in gen_map and gen_role not in added:
+                # Prefix to avoid collision with original voice names
+                new_name = f"accomp_{gen_role}"
+                track = gen_map[gen_role]
+                # Scale velocity down so accompaniment sits behind original
+                from music_generator import Track, Note
+                softer_notes = [
+                    Note(n.pitch, n.duration, max(1, int(n.velocity * 0.7)))
+                    for n in track.notes
+                ]
+                merged_tracks.append(Track(
+                    instrument=track.instrument,
+                    notes=softer_notes,
+                    channel=None,  # auto-assign
+                ))
+                merged_roles.append(new_name)
+                added.add(gen_role)
+
+    return MusicScore(
+        tempo_bpm      = original.tempo_bpm,
+        time_signature = original.time_signature,
+        tracks         = merged_tracks,
+        metadata       = {"voices": merged_roles, "form": "accompany", "intent": {}},
+    )
+
+
 # ── Section generation ────────────────────────────────────────────────────────
 
 def generate_section(
@@ -945,7 +1093,13 @@ def generate_from_analysis(
         #   voice_sequences remain available as a phrase-motif template for the generator.
         mode  = section.generation_mode
         score = None
-        if mode == "arrange" and section.voice_sequences:
+        if mode == "accompany" and section.voice_sequences:
+            add_roles = section.extra_params.get("_accompany_roles")
+            score = accompany_section(
+                section, analysis, base_params, seed=section_seed,
+                add_roles=add_roles,
+            )
+        elif mode == "arrange" and section.voice_sequences:
             score = arrange_section(section, analysis, base_params, seed=section_seed)
         elif mode != "generate" and section.voice_sequences:
             score = replay_section(section, analysis, base_params)

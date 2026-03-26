@@ -351,3 +351,194 @@ def _empty_wav(sr: int) -> bytes:
         wf.setframerate(sr)
         wf.writeframes(data)
     return wav_io.getvalue()
+
+
+# ── SoundFont rendering (FluidSynth) ─────────────────────────────────────────
+
+# Common SoundFont search paths (cross-platform)
+_SOUNDFONT_SEARCH_PATHS = [
+    # Linux
+    "/usr/share/sounds/sf2/FluidR3_GM.sf2",
+    "/usr/share/sounds/sf2/default.sf2",
+    "/usr/share/soundfonts/FluidR3_GM.sf2",
+    "/usr/share/soundfonts/default.sf2",
+    # macOS (Homebrew)
+    "/usr/local/share/fluidsynth/FluidR3_GM.sf2",
+    "/opt/homebrew/share/fluidsynth/FluidR3_GM.sf2",
+    # Windows (common install locations)
+    "C:/soundfonts/FluidR3_GM.sf2",
+    "C:/Program Files/FluidSynth/share/soundfonts/FluidR3_GM.sf2",
+]
+
+
+def _find_soundfont(custom_path: str | None = None) -> str | None:
+    """
+    Locate a GM SoundFont file on the system.
+
+    Parameters
+    ----------
+    custom_path  Explicit path to a .sf2 file (checked first).
+
+    Returns
+    -------
+    Path string to the SoundFont, or None if not found.
+    """
+    import os
+
+    if custom_path and os.path.isfile(custom_path):
+        return custom_path
+
+    # Check environment variable
+    env_sf = os.environ.get("SOUNDFONT_PATH")
+    if env_sf and os.path.isfile(env_sf):
+        return env_sf
+
+    for path in _SOUNDFONT_SEARCH_PATHS:
+        if os.path.isfile(path):
+            return path
+
+    return None
+
+
+def midi_to_wav_soundfont(
+    midi_bytes: bytes,
+    sample_rate: int = _SAMPLE_RATE,
+    soundfont_path: str | None = None,
+) -> bytes:
+    """
+    Render a MIDI file to WAV using FluidSynth with a GM SoundFont.
+
+    This produces much higher quality audio than the basic waveform
+    synthesis, using recorded instrument samples.
+
+    Parameters
+    ----------
+    midi_bytes      Raw bytes of a standard MIDI (.mid) file.
+    sample_rate     Output sample rate in Hz (default 44100).
+    soundfont_path  Path to a .sf2 SoundFont file.  If None, searches
+                    common system paths and $SOUNDFONT_PATH env var.
+
+    Returns
+    -------
+    bytes  WAV file data (16-bit PCM, stereo, at *sample_rate* Hz).
+
+    Raises
+    ------
+    ImportError   If fluidsynth (pyfluidsynth) is not installed.
+    FileNotFoundError  If no SoundFont file can be found.
+    """
+    try:
+        import fluidsynth
+    except ImportError:
+        raise ImportError(
+            "SoundFont rendering requires pyfluidsynth. "
+            "Install with: pip install pyfluidsynth\n"
+            "Also install FluidSynth system library:\n"
+            "  Ubuntu/Debian: sudo apt install fluidsynth libfluidsynth-dev\n"
+            "  macOS: brew install fluid-synth\n"
+            "  Windows: download from https://github.com/FluidSynth/fluidsynth/releases"
+        )
+
+    sf_path = _find_soundfont(soundfont_path)
+    if sf_path is None:
+        raise FileNotFoundError(
+            "No SoundFont (.sf2) file found. Install one:\n"
+            "  Ubuntu/Debian: sudo apt install fluid-soundfont-gm\n"
+            "  Or download FluidR3_GM.sf2 and set SOUNDFONT_PATH env var.\n"
+            "  Or pass soundfont_path= to midi_to_wav_soundfont()."
+        )
+
+    # Create FluidSynth instance
+    fs = fluidsynth.Synth(samplerate=float(sample_rate))
+    sfid = fs.sfload(sf_path)
+    fs.program_reset()
+
+    # Parse MIDI using mido
+    _require_deps()
+    mid = mido.MidiFile(file=io.BytesIO(midi_bytes))
+
+    # Collect all events with absolute time
+    tempo    = 500_000
+    cur_time = 0.0
+    events: list[tuple[float, object]] = []
+
+    for msg in mido.merge_tracks(mid.tracks):
+        if not hasattr(msg, "time"):
+            continue
+        dt        = mido.tick2second(msg.time, mid.ticks_per_beat, tempo)
+        cur_time += dt
+        if msg.type == "set_tempo":
+            tempo = msg.tempo
+        events.append((cur_time, msg))
+
+    if not events:
+        fs.delete()
+        return _empty_wav(sample_rate)
+
+    total_secs = events[-1][0] + 2.0
+    total_samples = int(total_secs * sample_rate)
+
+    # Render by processing events in real-time chunks
+    chunk_size = 1024
+    output_left:  list = []
+    output_right: list = []
+
+    sample_pos = 0
+    event_idx  = 0
+
+    while sample_pos < total_samples:
+        # Process events that fall within this chunk
+        chunk_end_time = (sample_pos + chunk_size) / sample_rate
+        while event_idx < len(events) and events[event_idx][0] <= chunk_end_time:
+            _, msg = events[event_idx]
+
+            if msg.type == "program_change":
+                fs.program_select(msg.channel, sfid, 0, msg.program)
+            elif msg.type == "note_on":
+                if msg.velocity > 0:
+                    fs.noteon(msg.channel, msg.note, msg.velocity)
+                else:
+                    fs.noteoff(msg.channel, msg.note)
+            elif msg.type == "note_off":
+                fs.noteoff(msg.channel, msg.note)
+            elif msg.type == "control_change":
+                fs.cc(msg.channel, msg.control, msg.value)
+            elif msg.type == "pitchwheel":
+                fs.pitch_bend(msg.channel, msg.value + 8192)
+
+            event_idx += 1
+
+        # Generate audio samples
+        samples = fs.get_samples(chunk_size)
+        # FluidSynth returns interleaved stereo int16
+        if _HAS_NUMPY:
+            arr = np.frombuffer(samples, dtype=np.int16)
+            output_left.append(arr[0::2].copy())
+            output_right.append(arr[1::2].copy())
+        else:
+            output_left.append(samples)
+
+        sample_pos += chunk_size
+
+    fs.delete()
+
+    # Build WAV
+    if _HAS_NUMPY:
+        left  = np.concatenate(output_left)[:total_samples]
+        right = np.concatenate(output_right)[:total_samples]
+
+        # Interleave stereo
+        stereo = np.empty(len(left) * 2, dtype=np.int16)
+        stereo[0::2] = left
+        stereo[1::2] = right
+
+        wav_io = io.BytesIO()
+        with wave.open(wav_io, "wb") as wf:
+            wf.setnchannels(2)
+            wf.setsampwidth(2)
+            wf.setframerate(sample_rate)
+            wf.writeframes(stereo.tobytes())
+
+        return wav_io.getvalue()
+    else:
+        return _empty_wav(sample_rate)

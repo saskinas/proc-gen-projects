@@ -7,10 +7,31 @@ from __future__ import annotations
 import pathlib
 from typing import Callable, Union
 
-from audio_listener import listen_midi
+from audio_listener import listen_midi, listen_audio
 from music_generator.compose import generate_from_analysis
 from music_generator import ROOT_TO_PC, SCALE_INTERVALS
 from procgen import export
+
+
+# ── Audio format detection ────────────────────────────────────────────────────
+
+_AUDIO_EXTENSIONS = {".wav", ".mp3", ".ogg", ".flac", ".aac", ".m4a", ".wma", ".opus"}
+_MIDI_EXTENSIONS  = {".mid", ".midi", ".smf"}
+
+
+def _is_audio_format(source) -> bool:
+    """Check if source is an audio file (not MIDI)."""
+    if isinstance(source, bytes):
+        # Check magic bytes: MIDI starts with MThd, WAV with RIFF
+        if source[:4] == b"MThd":
+            return False
+        return True  # assume audio for non-MIDI bytes
+    ext = pathlib.Path(str(source)).suffix.lower()
+    if ext in _AUDIO_EXTENSIONS:
+        return True
+    if ext in _MIDI_EXTENSIONS:
+        return False
+    return False  # default to MIDI for unknown extensions
 
 
 # ── Default base params (NES-appropriate, adapts to analysis) ─────────────────
@@ -97,15 +118,27 @@ def _adapt_base(analysis, overrides: dict | None) -> dict:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def analyze(source: Union[str, pathlib.Path, bytes]):
+def analyze(source: Union[str, pathlib.Path, bytes], **kwargs):
     """
-    Parse a MIDI file and return a MusicalAnalysis IR.
+    Parse a MIDI or audio file and return a MusicalAnalysis IR.
+
+    Automatically detects the format from the file extension or byte header.
+    Supported formats:
+      - MIDI: .mid, .midi, .smf (or bytes starting with b'MThd')
+      - Audio: .wav, .mp3, .ogg, .flac, .aac, .m4a, .wma, .opus
 
     Parameters
     ----------
-    source  Path/str to a .mid file, or raw MIDI bytes.
+    source  Path/str to a music file, or raw file bytes.
+    **kwargs  Passed to listen_midi() or listen_audio().
+
+    Returns
+    -------
+    MusicalAnalysis
     """
-    return listen_midi(source)
+    if _is_audio_format(source):
+        return listen_audio(source, **kwargs)
+    return listen_midi(source, **kwargs)
 
 
 def describe(analysis) -> str:
@@ -271,6 +304,26 @@ def remix(
     return export.to_midi(score)
 
 
+def _has_note_level_transforms(transform_fns) -> bool:
+    """
+    Check if any transform modifies notes at the note level.
+
+    Simple transforms (transpose, tempo change) can be applied to stems
+    directly.  Note-level transforms (mode swap, style changes, inspired-by)
+    require re-synthesis from the IR.
+    """
+    # Import here to avoid circular dependency
+    simple_names = {
+        "transpose", "tempo_change", "identity",
+        # These only change key/tempo metadata, not individual notes
+    }
+    for fn in transform_fns:
+        name = getattr(fn, "__name__", "")
+        if name not in simple_names:
+            return True
+    return False
+
+
 def remix_to_file(
     source:    Union[str, pathlib.Path, bytes],
     out_path:  Union[str, pathlib.Path],
@@ -284,7 +337,12 @@ def remix_to_file(
 
     Output format is determined by the file extension:
       .mid / .midi  → Standard MIDI file
-      .wav          → 16-bit PCM WAV (requires numpy + mido)
+      .wav          → 16-bit PCM WAV
+
+    For audio source files with stem data:
+      - Untransformed or simple transforms (transpose/tempo) → stem remix
+      - Note-level transforms → IR → MIDI → synthesis
+      - Both paths produce WAV when out_path ends in .wav
 
     Parameters mirror remix(); out_path is created (including parents) if needed.
     """
@@ -296,27 +354,70 @@ def remix_to_file(
     original_mode = analysis.mode
     original_bpm  = analysis.tempo_bpm
 
+    # Check for stem data (audio source input)
+    audio_meta = getattr(analysis, "_audio_metadata", {})
+    has_stems  = audio_meta.get("has_stems", False)
+    stem_data  = audio_meta.get("stem_data", None)
+
     for fn in transform_fns:
         analysis = fn(analysis)
 
+    want_wav = out_path.suffix.lower() == ".wav"
+
+    # ── Output routing for audio sources with stems ───────────────────────────
+    if has_stems and stem_data and want_wav and not _has_note_level_transforms(transform_fns):
+        # Simple transform path: use stems directly (faithful reproduction)
+        from audio_listener.stem_separator import stems_to_wav
+
+        # Calculate tempo and pitch changes from transforms
+        tempo_factor = analysis.tempo_bpm / original_bpm if original_bpm else 1.0
+        from music_generator import ROOT_TO_PC as _r2p
+        orig_pc = _r2p.get(original_key, 0)
+        new_pc  = _r2p.get(analysis.key, 0)
+        pitch_shift = (new_pc - orig_pc + 6) % 12 - 6  # shortest path
+
+        wav_bytes = stems_to_wav(
+            stem_data,
+            tempo_factor=tempo_factor,
+            pitch_shift_semitones=pitch_shift,
+        )
+        out_path.write_bytes(wav_bytes)
+
+        if verbose:
+            xforms = " -> ".join(f.__name__ for f in transform_fns) or "(none)"
+            print(
+                f"  {out_path.name:<42} "
+                f"{original_key} {original_mode} -> {analysis.key} {analysis.mode}  "
+                f"{original_bpm}->{analysis.tempo_bpm}bpm  "
+                f"[stems] [{xforms}]"
+            )
+        return
+
+    # ── Standard path: IR → generate → MIDI → optional WAV ───────────────────
     adapted   = _adapt_base(analysis, base_params)
     score     = generate_from_analysis(analysis, base_params=adapted, seed=seed)
     midi_data = export.to_midi(score)
 
-    if out_path.suffix.lower() == ".wav":
+    if want_wav:
         from procgen.synthesize import midi_to_wav
-        out_path.write_bytes(midi_to_wav(midi_data))
+        # Try SoundFont rendering first if available, fall back to basic synth
+        try:
+            from procgen.synthesize import midi_to_wav_soundfont
+            out_path.write_bytes(midi_to_wav_soundfont(midi_data))
+        except (ImportError, Exception):
+            out_path.write_bytes(midi_to_wav(midi_data))
     else:
         out_path.write_bytes(midi_data)
 
     if verbose:
         n_notes = sum(len(t.notes) for t in score.tracks)
         xforms  = " -> ".join(f.__name__ for f in transform_fns) or "(none)"
+        src_tag = " [audio→IR]" if audio_meta.get("source_format") == "audio" else ""
         print(
             f"  {out_path.name:<42} "
             f"{original_key} {original_mode} -> {analysis.key} {analysis.mode}  "
             f"{original_bpm}->{analysis.tempo_bpm}bpm  "
-            f"{n_notes}n  [{xforms}]"
+            f"{n_notes}n  [{xforms}]{src_tag}"
         )
 
 

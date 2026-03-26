@@ -121,6 +121,15 @@ REMIX_PLAN: list[tuple[str, list[Callable]]] = [
     ("36_inspired_by",          [_P["inspired_by"]]),
     ("37_inspired_sequel",      [_P["inspired_sequel"]]),
     ("38_inspired_contrast",    [_P["inspired_contrast"]]),
+
+    # ── Accompaniment (new voices alongside original) ───────────────────────
+    ("39_accompany",            [_P["accompany"]]),
+    ("40_duet",                 [_P["duet"]]),
+    ("41_call_response",        [_P["call_response"]]),
+    ("42_harmonize",            [_P["harmonize"]]),
+    ("43_backing_band",         [_P["backing_band"]]),
+    ("44_jazz_combo",           [_P["jazz_combo"]]),
+    ("45_orchestral_accompany", [_P["orchestral_accompany"]]),
 ]
 
 
